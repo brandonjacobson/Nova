@@ -41,16 +41,15 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Hash password before saving
-userSchema.pre('save', async function (next) {
+// Hash password before saving (Mongoose 8+ async hooks don't use next())
+userSchema.pre('save', async function () {
   if (!this.isModified('passwordHash')) {
-    return next();
+    return;
   }
   // Only hash if it's not already hashed (for seeding)
   if (this.passwordHash && !this.passwordHash.startsWith('$2')) {
     this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
   }
-  next();
 });
 
 // Compare password method

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Invoice, Business } = require('../models');
 const { authenticate } = require('../middleware/auth');
+const solanaService = require('../services/solana');
 
 // All invoice routes require authentication
 router.use(authenticate);
@@ -11,7 +12,7 @@ router.use(authenticate);
  */
 router.post('/', async (req, res) => {
   try {
-    const { clientName, clientEmail, clientAddress, items, dueDate, notes } = req.body;
+    const { clientName, clientEmail, clientAddress, items, dueDate, notes, paymentToken } = req.body;
 
     // Validate required fields
     if (!clientName || !clientEmail || !items || !dueDate) {
@@ -26,6 +27,16 @@ router.post('/', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Items must be a non-empty array',
+      });
+    }
+
+    // Validate payment token
+    const validTokens = ['SOL', 'USDC'];
+    const token = paymentToken?.toUpperCase() || 'SOL';
+    if (!validTokens.includes(token)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid payment token. Must be one of: ${validTokens.join(', ')}`,
       });
     }
 
@@ -48,6 +59,7 @@ router.post('/', async (req, res) => {
       })),
       dueDate: new Date(dueDate),
       notes: notes || '',
+      paymentToken: token,
       status: 'DRAFT',
     });
 
@@ -235,7 +247,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 /**
- * POST /api/invoices/:id/send - Mark invoice as sent
+ * POST /api/invoices/:id/send - Mark invoice as sent and generate Solana Pay URL
  */
 router.post('/:id/send', async (req, res) => {
   try {
@@ -258,16 +270,36 @@ router.post('/:id/send', async (req, res) => {
       });
     }
 
-    // TODO: Generate Solana payment address here
-    // For now, generate a placeholder address
-    invoice.solanaPaymentAddress = `demo_${invoice._id.toString().slice(-8)}`;
+    // Get business for wallet address
+    const business = await Business.findById(req.businessId);
 
-    // Calculate SOL amount (using demo rate: 1 SOL = $150)
-    const SOL_USD_RATE = 150;
-    const usdAmount = invoice.total / 100; // Convert cents to dollars
-    const solAmount = usdAmount / SOL_USD_RATE;
-    invoice.solanaAmountLamports = Math.ceil(solAmount * 1_000_000_000); // Convert to lamports
+    if (!business.solanaWalletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Business has no Solana wallet configured. Please add a wallet address in settings.',
+      });
+    }
 
+    // Generate unique reference for tracking this payment on-chain
+    const reference = solanaService.generateReference();
+
+    // Create Solana Pay URL
+    const paymentData = solanaService.createPaymentUrl({
+      recipient: business.solanaWalletAddress,
+      amountUsdCents: invoice.total,
+      token: invoice.paymentToken,
+      reference,
+      label: business.name,
+      message: `Invoice ${invoice.invoiceNumber}`,
+      memo: invoice.invoiceNumber,
+    });
+
+    // Update invoice with payment details
+    invoice.recipientAddress = business.solanaWalletAddress;
+    invoice.referencePublicKey = reference;
+    invoice.solanaPayUrl = paymentData.url;
+    invoice.paymentAmount = paymentData.amount;
+    invoice.paymentAmountSmallestUnit = paymentData.amountSmallestUnit;
     invoice.status = 'SENT';
     invoice.issueDate = new Date();
 
@@ -289,7 +321,7 @@ router.post('/:id/send', async (req, res) => {
 });
 
 /**
- * POST /api/invoices/:id/check-payment - Check Solana payment status
+ * POST /api/invoices/:id/check-payment - Check Solana payment status (on-chain verification)
  */
 router.post('/:id/check-payment', async (req, res) => {
   try {
@@ -305,17 +337,72 @@ router.post('/:id/check-payment', async (req, res) => {
       });
     }
 
-    // TODO: Integrate Solana payment verification
-    // For demo, return current status
+    // If already paid or settled, return current status
+    if (invoice.status === 'PAID' || invoice.status === 'SETTLED') {
+      return res.json({
+        success: true,
+        data: {
+          invoiceId: invoice._id,
+          status: invoice.status,
+          paid: true,
+          settled: invoice.status === 'SETTLED',
+          transactionSignature: invoice.transactionSignature,
+          explorerUrl: invoice.transactionSignature
+            ? solanaService.getExplorerUrl(invoice.transactionSignature)
+            : null,
+        },
+      });
+    }
+
+    // If not sent yet, can't check payment
+    if (invoice.status === 'DRAFT' || invoice.status === 'CANCELLED') {
+      return res.json({
+        success: true,
+        data: {
+          invoiceId: invoice._id,
+          status: invoice.status,
+          paid: false,
+          message: invoice.status === 'DRAFT'
+            ? 'Invoice not yet sent'
+            : 'Invoice was cancelled',
+        },
+      });
+    }
+
+    // Verify payment on-chain
+    const verification = await solanaService.verifyPayment(invoice);
+
+    if (verification.found && verification.valid) {
+      // Payment confirmed! Update invoice
+      invoice.status = 'PAID';
+      invoice.paidAt = new Date();
+      invoice.transactionSignature = verification.signature;
+      await invoice.save();
+
+      return res.json({
+        success: true,
+        data: {
+          invoiceId: invoice._id,
+          status: 'PAID',
+          paid: true,
+          settled: false,
+          transactionSignature: verification.signature,
+          explorerUrl: solanaService.getExplorerUrl(verification.signature),
+        },
+      });
+    }
+
+    // Payment not found yet
     res.json({
       success: true,
       data: {
         invoiceId: invoice._id,
         status: invoice.status,
-        solanaPaymentAddress: invoice.solanaPaymentAddress,
-        solanaAmountLamports: invoice.solanaAmountLamports,
-        paid: invoice.status === 'PAID' || invoice.status === 'SETTLED',
-        settled: invoice.status === 'SETTLED',
+        paid: false,
+        settled: false,
+        solanaPayUrl: invoice.solanaPayUrl,
+        paymentAmount: invoice.paymentAmount,
+        paymentToken: invoice.paymentToken,
       },
     });
   } catch (error) {

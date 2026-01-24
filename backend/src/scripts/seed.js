@@ -34,6 +34,8 @@ const seedData = async () => {
     ]);
 
     // Create demo business
+    // Note: This is a demo devnet wallet address for testing
+    // In production, businesses would provide their own wallet address
     console.log('Creating demo business...');
     const business = await Business.create({
       name: 'Acme Web Services',
@@ -41,6 +43,8 @@ const seedData = async () => {
       invoicePrefix: 'INV-',
       invoiceCounter: 0,
       defaultCurrency: 'USD',
+      // Demo Solana devnet wallet - valid address for testing
+      solanaWalletAddress: 'AtWKwhUsdVHYgrNBHyTh1GHoien8nHYwoYuEC7Jka17B',
       nessieAccountId: 'demo-nessie-account',
     });
 
@@ -103,8 +107,12 @@ const seedData = async () => {
       ],
       dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
       status: 'SENT',
-      solanaPaymentAddress: 'DemoAddr1234567890abcdef',
-      solanaAmountLamports: 2333333333, // ~2.33 SOL at $150/SOL
+      paymentToken: 'SOL',
+      recipientAddress: business.solanaWalletAddress,
+      referencePublicKey: '5vefVHLDfYSH1vzVQ4HMJWjNhAE7ud9FpuvHaR3mT4o3',
+      solanaPayUrl: 'solana:' + business.solanaWalletAddress + '?amount=2.33',
+      paymentAmount: 2.33,
+      paymentAmountSmallestUnit: 2333333333,
       issueDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
     });
 
@@ -118,8 +126,12 @@ const seedData = async () => {
       ],
       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       status: 'PENDING',
-      solanaPaymentAddress: 'DemoAddr2345678901bcdefg',
-      solanaAmountLamports: 3000000000,
+      paymentToken: 'SOL',
+      recipientAddress: business.solanaWalletAddress,
+      referencePublicKey: 'Bn9JdPoovmSvMnEv8i1H41bNfzUbJ75KD3UBW3pqywdg',
+      solanaPayUrl: 'solana:' + business.solanaWalletAddress + '?amount=3.0',
+      paymentAmount: 3.0,
+      paymentAmountSmallestUnit: 3000000000,
       issueDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
     });
 
@@ -132,8 +144,13 @@ const seedData = async () => {
       ],
       dueDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
       status: 'PAID',
-      solanaPaymentAddress: 'DemoAddr3456789012cdefgh',
-      solanaAmountLamports: 3000000000,
+      paymentToken: 'SOL',
+      recipientAddress: business.solanaWalletAddress,
+      referencePublicKey: 'HgWFDGqxE2RAqd4C7kd4GueGEhcwejVdZCAupULLJfaF',
+      solanaPayUrl: 'solana:' + business.solanaWalletAddress + '?amount=3.0',
+      paymentAmount: 3.0,
+      paymentAmountSmallestUnit: 3000000000,
+      transactionSignature: 'demo_signature_1234567890abcdef',
       issueDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
       paidAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
     });
@@ -148,8 +165,13 @@ const seedData = async () => {
       ],
       dueDate: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
       status: 'SETTLED',
-      solanaPaymentAddress: 'DemoAddr4567890123defghi',
-      solanaAmountLamports: 5666666667,
+      paymentToken: 'SOL',
+      recipientAddress: business.solanaWalletAddress,
+      referencePublicKey: 'LuxtfbmDtHhisf8yrakDhxMXGygGcJcxNUmRE6XgBeY',
+      solanaPayUrl: 'solana:' + business.solanaWalletAddress + '?amount=5.67',
+      paymentAmount: 5.67,
+      paymentAmountSmallestUnit: 5666666667,
+      transactionSignature: 'demo_signature_settled_abcdef123456',
       issueDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
       paidAt: new Date(Date.now() - 22 * 24 * 60 * 60 * 1000),
       settledAt: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000),
@@ -164,8 +186,13 @@ const seedData = async () => {
       ],
       dueDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
       status: 'SETTLED',
-      solanaPaymentAddress: 'DemoAddr5678901234efghij',
-      solanaAmountLamports: 666666667,
+      paymentToken: 'SOL',
+      recipientAddress: business.solanaWalletAddress,
+      referencePublicKey: '3PQk2Jx6Ds74maemT9xwrLKoxtzxUmUjvVaFx7kg8GkP',
+      solanaPayUrl: 'solana:' + business.solanaWalletAddress + '?amount=0.67',
+      paymentAmount: 0.67,
+      paymentAmountSmallestUnit: 666666667,
+      transactionSignature: 'demo_signature_settled2_xyz789',
       issueDate: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000),
       paidAt: new Date(Date.now() - 16 * 24 * 60 * 60 * 1000),
       settledAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
@@ -192,8 +219,12 @@ const seedData = async () => {
       ],
       dueDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days overdue
       status: 'SENT',
-      solanaPaymentAddress: 'DemoAddr6789012345fghijk',
-      solanaAmountLamports: 1000000000,
+      paymentToken: 'SOL',
+      recipientAddress: business.solanaWalletAddress,
+      referencePublicKey: '2o84BrFPh3ZmTLPoqqhffUZdrJNXr5e6HmJehhSJ5SR1',
+      solanaPayUrl: 'solana:' + business.solanaWalletAddress + '?amount=1.0',
+      paymentAmount: 1.0,
+      paymentAmountSmallestUnit: 1000000000,
       issueDate: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000),
     });
 
@@ -202,10 +233,10 @@ const seedData = async () => {
     const payment = await Payment.create({
       invoiceId: paidInvoice._id,
       businessId: business._id,
-      transactionSignature: 'demo_signature_1234567890abcdef',
-      fromAddress: 'PayerWallet123456789',
-      toAddress: paidInvoice.solanaPaymentAddress,
-      amountLamports: paidInvoice.solanaAmountLamports,
+      transactionSignature: paidInvoice.transactionSignature,
+      fromAddress: 'PayerWa11et123456789abcdefghijklmnopqrstu',
+      toAddress: paidInvoice.recipientAddress,
+      amountLamports: paidInvoice.paymentAmountSmallestUnit,
       status: 'CONFIRMED',
       confirmations: 32,
       confirmedAt: paidInvoice.paidAt,

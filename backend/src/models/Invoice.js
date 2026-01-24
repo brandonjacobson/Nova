@@ -80,18 +80,35 @@ const invoiceSchema = new mongoose.Schema(
       required: true,
       default: 0,
     },
-    // Payment Config
-    solanaPaymentAddress: {
+    // Payment Config (Solana Pay)
+    paymentToken: {
       type: String,
-      default: null,
+      enum: ['SOL', 'USDC'],
+      default: 'SOL',
     },
-    solanaAmountLamports: {
+    recipientAddress: {
+      type: String,
+      default: null, // Business's Solana wallet address
+    },
+    referencePublicKey: {
+      type: String,
+      default: null, // Unique reference for tracking payment on-chain
+    },
+    solanaPayUrl: {
+      type: String,
+      default: null, // Encoded Solana Pay URL
+    },
+    paymentAmount: {
       type: Number,
-      default: null,
+      default: null, // Amount in token units (e.g., 1.5 SOL)
     },
-    acceptedTokens: {
-      type: [String],
-      default: ['SOL'],
+    paymentAmountSmallestUnit: {
+      type: Number,
+      default: null, // Amount in smallest unit (lamports for SOL)
+    },
+    transactionSignature: {
+      type: String,
+      default: null, // Stored after payment confirmed
     },
     // Status
     status: {
@@ -132,8 +149,8 @@ const invoiceSchema = new mongoose.Schema(
 // Compound index for business + invoice number uniqueness
 invoiceSchema.index({ businessId: 1, invoiceNumber: 1 }, { unique: true });
 
-// Calculate totals before saving
-invoiceSchema.pre('save', function (next) {
+// Calculate totals before saving (Mongoose 9.x - no next() needed)
+invoiceSchema.pre('save', function () {
   if (this.items && this.items.length > 0) {
     // Calculate each item amount and subtotal
     this.subtotal = this.items.reduce((sum, item) => {
@@ -142,7 +159,6 @@ invoiceSchema.pre('save', function (next) {
     }, 0);
     this.total = this.subtotal + (this.tax || 0);
   }
-  next();
 });
 
 // Virtual for formatted total

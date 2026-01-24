@@ -155,3 +155,7 @@ dist
 .build
 .next
 out
+
+# Claude Files (.md files)
+.md
+!README.md

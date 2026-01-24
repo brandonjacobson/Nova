@@ -66,10 +66,9 @@ const settlementSchema = new mongoose.Schema(
   }
 );
 
-// Calculate net amount before saving
-settlementSchema.pre('save', function (next) {
+// Calculate net amount before saving (Mongoose 9.x - no next() needed)
+settlementSchema.pre('save', function () {
   this.netAmountCents = this.amountCents - (this.feeCents || 0);
-  next();
 });
 
 // Virtual for formatted amounts
