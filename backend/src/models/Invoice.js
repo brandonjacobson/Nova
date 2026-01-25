@@ -38,6 +38,7 @@ const invoiceSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+
     // Client Info
     clientName: {
       type: String,
@@ -46,15 +47,16 @@ const invoiceSchema = new mongoose.Schema(
     },
     clientEmail: {
       type: String,
-      required: [true, 'Client email is required'],
       lowercase: true,
       trim: true,
+      default: '',
     },
     clientAddress: {
       type: String,
       default: '',
       trim: true,
     },
+
     // Line Items
     items: {
       type: [lineItemSchema],
@@ -65,6 +67,7 @@ const invoiceSchema = new mongoose.Schema(
         message: 'Invoice must have at least one line item',
       },
     },
+
     // Totals (stored in cents)
     subtotal: {
       type: Number,
@@ -80,44 +83,111 @@ const invoiceSchema = new mongoose.Schema(
       required: true,
       default: 0,
     },
-    // Payment Config (Solana Pay)
-    paymentToken: {
-      type: String,
-      enum: ['SOL', 'USDC'],
-      default: 'SOL',
+
+    // ========== MULTI-CHAIN PAYMENT OPTIONS ==========
+
+    // Which payment rails are enabled for this invoice
+    paymentOptions: {
+      allowBtc: { type: Boolean, default: true },
+      allowEth: { type: Boolean, default: true },
+      allowSol: { type: Boolean, default: true },
     },
-    recipientAddress: {
-      type: String,
-      default: null, // Business's Solana wallet address
+
+    // Deposit addresses (generated when invoice is sent)
+    depositAddresses: {
+      btc: { type: String, default: '' },
+      eth: { type: String, default: '' },
+      sol: { type: String, default: '' },
     },
+
+    // Solana-specific (for Solana Pay support)
     referencePublicKey: {
       type: String,
-      default: null, // Unique reference for tracking payment on-chain
+      default: null,
     },
     solanaPayUrl: {
       type: String,
-      default: null, // Encoded Solana Pay URL
+      default: null,
     },
-    paymentAmount: {
-      type: Number,
-      default: null, // Amount in token units (e.g., 1.5 SOL)
-    },
-    paymentAmountSmallestUnit: {
-      type: Number,
-      default: null, // Amount in smallest unit (lamports for SOL)
-    },
-    transactionSignature: {
+
+    // ========== CONVERSION & SETTLEMENT CONFIG ==========
+
+    // Conversion mode: MODE_A (convert & settle) or MODE_B (receive in-kind)
+    conversionMode: {
       type: String,
-      default: null, // Stored after payment confirmed
+      enum: ['MODE_A', 'MODE_B'],
+      default: 'MODE_A',
     },
-    // Status
+
+    // Settlement target: what asset the merchant wants to receive
+    settlementTarget: {
+      type: String,
+      enum: ['BTC', 'ETH', 'SOL', 'USD'],
+      default: 'USD',
+    },
+
+    // Auto-cashout to fiat (only applies when settlementTarget is USD)
+    autoCashout: {
+      type: Boolean,
+      default: true,
+    },
+
+    // ========== LOCKED QUOTE (captured at payment time) ==========
+
+    lockedQuote: {
+      paymentChain: { type: String, enum: ['BTC', 'ETH', 'SOL'] },
+      paymentAmount: { type: String }, // Amount in native units
+      paymentAmountUsd: { type: Number }, // USD cents value
+      rates: {
+        btc: { type: Number }, // BTC price in USD
+        eth: { type: Number }, // ETH price in USD
+        sol: { type: Number }, // SOL price in USD
+      },
+      lockedAt: { type: Date },
+      expiresAt: { type: Date },
+    },
+
+    // ========== STATUS ==========
+
     status: {
       type: String,
-      enum: ['DRAFT', 'SENT', 'PENDING', 'PAID', 'SETTLED', 'CANCELLED'],
+      enum: [
+        'DRAFT',
+        'SENT',
+        'PENDING',
+        'PAID_DETECTED',
+        'CONVERTING',
+        'SETTLING',
+        'CASHED_OUT',
+        'COMPLETE',
+        'CANCELLED',
+        'FAILED',
+      ],
       default: 'DRAFT',
       index: true,
     },
-    // Dates
+
+    // ========== TRANSACTION REFERENCES ==========
+
+    paymentTxHash: {
+      type: String,
+      default: null,
+    },
+    conversionTxHash: {
+      type: String,
+      default: null,
+    },
+    settlementTxHash: {
+      type: String,
+      default: null,
+    },
+    nessieTransferId: {
+      type: String,
+      default: null,
+    },
+
+    // ========== TIMESTAMPS ==========
+
     issueDate: {
       type: Date,
       default: Date.now,
@@ -126,7 +196,15 @@ const invoiceSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    sentAt: {
+      type: Date,
+      default: null,
+    },
     paidAt: {
+      type: Date,
+      default: null,
+    },
+    convertedAt: {
       type: Date,
       default: null,
     },
@@ -134,6 +212,15 @@ const invoiceSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    cashedOutAt: {
+      type: Date,
+      default: null,
+    },
+    completedAt: {
+      type: Date,
+      default: null,
+    },
+
     // Notes
     notes: {
       type: String,
@@ -149,7 +236,7 @@ const invoiceSchema = new mongoose.Schema(
 // Compound index for business + invoice number uniqueness
 invoiceSchema.index({ businessId: 1, invoiceNumber: 1 }, { unique: true });
 
-// Calculate totals before saving (Mongoose 9.x - no next() needed)
+// Calculate totals before saving
 invoiceSchema.pre('save', function () {
   if (this.items && this.items.length > 0) {
     // Calculate each item amount and subtotal
@@ -164,6 +251,25 @@ invoiceSchema.pre('save', function () {
 // Virtual for formatted total
 invoiceSchema.virtual('formattedTotal').get(function () {
   return `$${(this.total / 100).toFixed(2)}`;
+});
+
+// Virtual for payment mode description
+invoiceSchema.virtual('modeDescription').get(function () {
+  if (this.conversionMode === 'MODE_B') {
+    return 'Receive In-Kind';
+  }
+  return this.settlementTarget === 'USD'
+    ? 'Convert & Auto-Cashout'
+    : `Convert to ${this.settlementTarget}`;
+});
+
+// Virtual for enabled chains
+invoiceSchema.virtual('enabledChains').get(function () {
+  const chains = [];
+  if (this.paymentOptions?.allowBtc) chains.push('BTC');
+  if (this.paymentOptions?.allowEth) chains.push('ETH');
+  if (this.paymentOptions?.allowSol) chains.push('SOL');
+  return chains;
 });
 
 // Enable virtuals in JSON

@@ -15,15 +15,33 @@ const businessSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    // Solana Configuration
-    solanaWalletAddress: {
-      type: String,
-      default: null,
+    // Multi-chain payout addresses (where merchant receives funds)
+    payoutAddresses: {
+      btc: { type: String, default: '' }, // Bitcoin address
+      eth: { type: String, default: '' }, // Ethereum address
+      sol: { type: String, default: '' }, // Solana address
     },
-    // Nessie Configuration
+
+    // Nessie (fiat) Configuration
     nessieAccountId: {
       type: String,
       default: null,
+    },
+    nessieCustomerId: {
+      type: String,
+      default: null,
+    },
+
+    // Default invoice settings
+    defaultSettlementTarget: {
+      type: String,
+      enum: ['BTC', 'ETH', 'SOL', 'USD'],
+      default: 'USD',
+    },
+    defaultConversionMode: {
+      type: String,
+      enum: ['MODE_A', 'MODE_B'],
+      default: 'MODE_A',
     },
     // Invoice Settings
     defaultCurrency: {

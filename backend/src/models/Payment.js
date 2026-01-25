@@ -14,8 +14,16 @@ const paymentSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    // Solana Transaction Details
-    transactionSignature: {
+
+    // Chain identifier (NEW - multi-chain support)
+    chain: {
+      type: String,
+      enum: ['BTC', 'ETH', 'SOL'],
+      required: true,
+    },
+
+    // Transaction Details (generalized)
+    txHash: {
       type: String,
       required: true,
       unique: true,
@@ -28,10 +36,13 @@ const paymentSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    amountLamports: {
-      type: Number,
+
+    // Amount in smallest unit (satoshis, wei, lamports) as string for precision
+    amount: {
+      type: String,
       required: true,
     },
+
     // Verification
     status: {
       type: String,
@@ -46,10 +57,11 @@ const paymentSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
     // Exchange Rate (at time of payment)
-    solUsdRate: {
+    exchangeRate: {
       type: Number,
-      default: null,
+      default: null, // USD price of asset at payment time
     },
     usdValueCents: {
       type: Number,
@@ -61,9 +73,22 @@ const paymentSchema = new mongoose.Schema(
   }
 );
 
-// Virtual for SOL amount (1 SOL = 1,000,000,000 lamports)
-paymentSchema.virtual('amountSol').get(function () {
-  return this.amountLamports / 1_000_000_000;
+// Virtual for human-readable amount based on chain
+paymentSchema.virtual('amountFormatted').get(function () {
+  const amount = BigInt(this.amount);
+  switch (this.chain) {
+    case 'BTC':
+      // 1 BTC = 100,000,000 satoshis
+      return (Number(amount) / 100_000_000).toFixed(8) + ' BTC';
+    case 'ETH':
+      // 1 ETH = 10^18 wei
+      return (Number(amount) / 1e18).toFixed(8) + ' ETH';
+    case 'SOL':
+      // 1 SOL = 1,000,000,000 lamports
+      return (Number(amount) / 1_000_000_000).toFixed(9) + ' SOL';
+    default:
+      return this.amount;
+  }
 });
 
 // Virtual for formatted USD value

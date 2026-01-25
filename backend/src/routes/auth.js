@@ -106,6 +106,59 @@ router.get('/me', authenticate, async (req, res) => {
 });
 
 /**
+ * PUT /api/auth/profile
+ * Update user profile (name) and business name
+ */
+router.put('/profile', authenticate, async (req, res) => {
+  try {
+    const { name, businessName } = req.body;
+
+    // Validate input - at least one field must be provided
+    if (!name && !businessName) {
+      return res.status(400).json({
+        success: false,
+        error: 'At least one field (name or businessName) is required',
+      });
+    }
+
+    // Update user name if provided
+    if (name) {
+      req.user.name = name;
+      await req.user.save();
+    }
+
+    // Update business name if provided
+    if (businessName) {
+      req.business.name = businessName;
+      await req.business.save();
+    }
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: req.user._id,
+          email: req.user.email,
+          name: req.user.name,
+          role: req.user.role,
+        },
+        business: {
+          id: req.business._id,
+          name: req.business.name,
+          email: req.business.email,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update profile',
+    });
+  }
+});
+
+/**
  * POST /api/auth/register
  * Register new business and owner user
  * (Simplified - for demo purposes)

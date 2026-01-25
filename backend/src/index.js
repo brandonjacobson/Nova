@@ -8,6 +8,7 @@ const authRouter = require('./routes/auth');
 const invoicesRouter = require('./routes/invoices');
 const dashboardRouter = require('./routes/dashboard');
 const publicRouter = require('./routes/public');
+const settingsRouter = require('./routes/settings');
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/invoices', invoicesRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/public', publicRouter);
+app.use('/api/settings', settingsRouter);
 
 // 404 handler for API routes (Express 5 syntax)
 app.use('/api/{*splat}', (req, res) => {

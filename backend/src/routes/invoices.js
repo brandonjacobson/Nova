@@ -1,24 +1,44 @@
+/**
+ * Invoice Routes
+ *
+ * Multi-chain invoice management with support for BTC, ETH, and SOL payments.
+ * Includes payment detection, pipeline processing, and simulation for testing.
+ */
+
 const express = require('express');
 const router = express.Router();
 const { Invoice, Business } = require('../models');
 const { authenticate } = require('../middleware/auth');
-const solanaService = require('../services/solana');
+const { chains, solana, quote, pipeline } = require('../services');
 
 // All invoice routes require authentication
 router.use(authenticate);
 
 /**
  * POST /api/invoices - Create new invoice
+ * Supports multi-chain payment options
  */
 router.post('/', async (req, res) => {
   try {
-    const { clientName, clientEmail, clientAddress, items, dueDate, notes, paymentToken } = req.body;
+    const {
+      clientName,
+      clientEmail,
+      clientAddress,
+      items,
+      dueDate,
+      notes,
+      // Multi-chain fields
+      paymentOptions,
+      conversionMode,
+      settlementTarget,
+      autoCashout,
+    } = req.body;
 
     // Validate required fields
-    if (!clientName || !clientEmail || !items || !dueDate) {
+    if (!clientName || !items || !dueDate) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: clientName, clientEmail, items, dueDate',
+        error: 'Missing required fields: clientName, items, dueDate',
       });
     }
 
@@ -30,26 +50,37 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Validate payment token
-    const validTokens = ['SOL', 'USDC'];
-    const token = paymentToken?.toUpperCase() || 'SOL';
-    if (!validTokens.includes(token)) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid payment token. Must be one of: ${validTokens.join(', ')}`,
-      });
-    }
-
-    // Get next invoice number
+    // Get business for defaults
     const business = await Business.findById(req.businessId);
     const invoiceNumber = await business.getNextInvoiceNumber();
+
+    // Set payment options (default: all chains enabled)
+    const finalPaymentOptions = {
+      allowBtc: paymentOptions?.allowBtc !== false,
+      allowEth: paymentOptions?.allowEth !== false,
+      allowSol: paymentOptions?.allowSol !== false,
+    };
+
+    // Use provided settings or business defaults
+    const finalConversionMode = conversionMode || business.defaultConversionMode || 'MODE_A';
+    const finalSettlementTarget = settlementTarget || business.defaultSettlementTarget || 'USD';
+    const finalAutoCashout = autoCashout !== undefined ? autoCashout : true;
+
+    // Validate settlement target
+    const validTargets = ['BTC', 'ETH', 'SOL', 'USD'];
+    if (!validTargets.includes(finalSettlementTarget)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid settlement target. Must be one of: ${validTargets.join(', ')}`,
+      });
+    }
 
     // Create invoice
     const invoice = await Invoice.create({
       businessId: req.businessId,
       invoiceNumber,
       clientName,
-      clientEmail,
+      clientEmail: clientEmail || '',
       clientAddress: clientAddress || '',
       items: items.map((item) => ({
         description: item.description,
@@ -59,7 +90,10 @@ router.post('/', async (req, res) => {
       })),
       dueDate: new Date(dueDate),
       notes: notes || '',
-      paymentToken: token,
+      paymentOptions: finalPaymentOptions,
+      conversionMode: finalConversionMode,
+      settlementTarget: finalSettlementTarget,
+      autoCashout: finalAutoCashout,
       status: 'DRAFT',
     });
 
@@ -86,7 +120,9 @@ router.get('/', async (req, res) => {
     // Build query
     const query = { businessId: req.businessId };
     if (status) {
-      query.status = status.toUpperCase();
+      // Support comma-separated statuses for grouped filters
+      const statuses = status.toUpperCase().split(',').map(s => s.trim());
+      query.status = statuses.length === 1 ? statuses[0] : { $in: statuses };
     }
 
     // Get total count
@@ -174,11 +210,22 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    const { clientName, clientEmail, clientAddress, items, dueDate, notes } = req.body;
+    const {
+      clientName,
+      clientEmail,
+      clientAddress,
+      items,
+      dueDate,
+      notes,
+      paymentOptions,
+      conversionMode,
+      settlementTarget,
+      autoCashout,
+    } = req.body;
 
     // Update fields
     if (clientName) invoice.clientName = clientName;
-    if (clientEmail) invoice.clientEmail = clientEmail;
+    if (clientEmail !== undefined) invoice.clientEmail = clientEmail;
     if (clientAddress !== undefined) invoice.clientAddress = clientAddress;
     if (items) {
       invoice.items = items.map((item) => ({
@@ -190,6 +237,10 @@ router.put('/:id', async (req, res) => {
     }
     if (dueDate) invoice.dueDate = new Date(dueDate);
     if (notes !== undefined) invoice.notes = notes;
+    if (paymentOptions) invoice.paymentOptions = paymentOptions;
+    if (conversionMode) invoice.conversionMode = conversionMode;
+    if (settlementTarget) invoice.settlementTarget = settlementTarget;
+    if (autoCashout !== undefined) invoice.autoCashout = autoCashout;
 
     await invoice.save();
 
@@ -247,7 +298,8 @@ router.delete('/:id', async (req, res) => {
 });
 
 /**
- * POST /api/invoices/:id/send - Mark invoice as sent and generate Solana Pay URL
+ * POST /api/invoices/:id/send - Send invoice and generate deposit addresses
+ * Generates deposit addresses for all enabled chains
  */
 router.post('/:id/send', async (req, res) => {
   try {
@@ -270,46 +322,102 @@ router.post('/:id/send', async (req, res) => {
       });
     }
 
-    // Get business for wallet address
+    // Get business for payout addresses
     const business = await Business.findById(req.businessId);
 
-    if (!business.solanaWalletAddress) {
+    // Check that at least one payment option is enabled
+    const hasPaymentOption =
+      invoice.paymentOptions.allowBtc ||
+      invoice.paymentOptions.allowEth ||
+      invoice.paymentOptions.allowSol;
+
+    if (!hasPaymentOption) {
       return res.status(400).json({
         success: false,
-        error: 'Business has no Solana wallet configured. Please add a wallet address in settings.',
+        error: 'At least one payment option must be enabled',
       });
     }
 
-    // Generate unique reference for tracking this payment on-chain
-    const reference = solanaService.generateReference();
+    // Generate deposit addresses for enabled chains
+    const depositAddresses = {};
 
-    // Create Solana Pay URL
-    const paymentData = solanaService.createPaymentUrl({
-      recipient: business.solanaWalletAddress,
-      amountUsdCents: invoice.total,
-      token: invoice.paymentToken,
-      reference,
-      label: business.name,
-      message: `Invoice ${invoice.invoiceNumber}`,
-      memo: invoice.invoiceNumber,
-    });
+    // Bitcoin
+    if (invoice.paymentOptions.allowBtc) {
+      const btcDeposit = chains.generateDepositAddress('BTC');
+      depositAddresses.btc = btcDeposit.address;
+    }
 
-    // Update invoice with payment details
-    invoice.recipientAddress = business.solanaWalletAddress;
-    invoice.referencePublicKey = reference;
-    invoice.solanaPayUrl = paymentData.url;
-    invoice.paymentAmount = paymentData.amount;
-    invoice.paymentAmountSmallestUnit = paymentData.amountSmallestUnit;
+    // Ethereum
+    if (invoice.paymentOptions.allowEth) {
+      const ethDeposit = chains.generateDepositAddress('ETH');
+      depositAddresses.eth = ethDeposit.address;
+    }
+
+    // Solana (with Solana Pay URL)
+    if (invoice.paymentOptions.allowSol) {
+      // Need a recipient address for Solana Pay
+      const solRecipient = business.payoutAddresses?.sol;
+
+      if (solRecipient) {
+        const solDeposit = chains.generateDepositAddress('SOL', {
+          recipientAddress: solRecipient,
+        });
+        depositAddresses.sol = solRecipient; // Solana Pay sends directly to merchant
+
+        // Store reference for payment tracking
+        invoice.referencePublicKey = solDeposit.reference;
+
+        // Create Solana Pay URL
+        const paymentUrl = solana.createPaymentUrl({
+          recipient: solRecipient,
+          amountUsdCents: invoice.total,
+          token: 'SOL',
+          reference: solDeposit.reference,
+          label: business.name,
+          message: `Invoice ${invoice.invoiceNumber}`,
+          memo: invoice.invoiceNumber,
+        });
+        invoice.solanaPayUrl = paymentUrl.url;
+      } else {
+        // No SOL payout address, generate reference-only for tracking
+        const solDeposit = solana.generateDepositAddress(
+          'demo-recipient' // Placeholder, payment will still be tracked by reference
+        );
+        invoice.referencePublicKey = solDeposit.reference;
+        depositAddresses.sol = ''; // No direct deposit address
+      }
+    }
+
+    // Create initial quote with current rates
+    const invoiceQuote = await quote.createQuote(invoice._id);
+
+    // Update invoice
+    invoice.depositAddresses = depositAddresses;
+    invoice.lockedQuote = {
+      rates: invoiceQuote.rates,
+      lockedAt: invoiceQuote.lockedAt,
+      expiresAt: invoiceQuote.expiresAt,
+    };
     invoice.status = 'SENT';
-    invoice.issueDate = new Date();
+    invoice.sentAt = new Date();
 
     await invoice.save();
 
-    // TODO: Send email notification to client
+    // Calculate payment amounts for response
+    const paymentAmounts = quote.calculatePaymentAmounts(invoice.total, invoiceQuote.rates);
+    const formattedAmounts = quote.calculateFormattedAmounts(invoice.total, invoiceQuote.rates);
 
     res.json({
       success: true,
-      data: invoice,
+      data: {
+        invoice,
+        paymentAmounts,
+        formattedAmounts,
+        quote: {
+          rates: invoiceQuote.rates,
+          expiresAt: invoiceQuote.expiresAt,
+        },
+      },
     });
   } catch (error) {
     console.error('Send invoice error:', error);
@@ -321,7 +429,8 @@ router.post('/:id/send', async (req, res) => {
 });
 
 /**
- * POST /api/invoices/:id/check-payment - Check Solana payment status (on-chain verification)
+ * POST /api/invoices/:id/check-payment - Check payment on all enabled chains
+ * If payment found, triggers the full pipeline
  */
 router.post('/:id/check-payment', async (req, res) => {
   try {
@@ -337,72 +446,60 @@ router.post('/:id/check-payment', async (req, res) => {
       });
     }
 
-    // If already paid or settled, return current status
-    if (invoice.status === 'PAID' || invoice.status === 'SETTLED') {
+    // If already processed, return current status
+    if (['PAID_DETECTED', 'CONVERTING', 'SETTLING', 'CASHED_OUT', 'COMPLETE'].includes(invoice.status)) {
+      const pipelineStatus = await pipeline.getPipelineSummary(invoice._id);
       return res.json({
         success: true,
         data: {
           invoiceId: invoice._id,
           status: invoice.status,
           paid: true,
-          settled: invoice.status === 'SETTLED',
-          transactionSignature: invoice.transactionSignature,
-          explorerUrl: invoice.transactionSignature
-            ? solanaService.getExplorerUrl(invoice.transactionSignature)
-            : null,
+          pipeline: pipelineStatus,
         },
       });
     }
 
     // If not sent yet, can't check payment
-    if (invoice.status === 'DRAFT' || invoice.status === 'CANCELLED') {
+    if (invoice.status === 'DRAFT' || invoice.status === 'CANCELLED' || invoice.status === 'FAILED') {
       return res.json({
         success: true,
         data: {
           invoiceId: invoice._id,
           status: invoice.status,
           paid: false,
-          message: invoice.status === 'DRAFT'
-            ? 'Invoice not yet sent'
-            : 'Invoice was cancelled',
+          message: invoice.status === 'DRAFT' ? 'Invoice not yet sent' : `Invoice is ${invoice.status.toLowerCase()}`,
         },
       });
     }
 
-    // Verify payment on-chain
-    const verification = await solanaService.verifyPayment(invoice);
+    // Check for payment and process if found
+    const result = await pipeline.checkAndProcessPayment(invoice._id);
 
-    if (verification.found && verification.valid) {
-      // Payment confirmed! Update invoice
-      invoice.status = 'PAID';
-      invoice.paidAt = new Date();
-      invoice.transactionSignature = verification.signature;
-      await invoice.save();
-
+    if (result.found) {
+      // Payment detected and pipeline started
+      const pipelineStatus = await pipeline.getPipelineSummary(invoice._id);
       return res.json({
         success: true,
         data: {
           invoiceId: invoice._id,
-          status: 'PAID',
+          status: result.invoice.status,
           paid: true,
-          settled: false,
-          transactionSignature: verification.signature,
-          explorerUrl: solanaService.getExplorerUrl(verification.signature),
+          chain: result.chain,
+          pipeline: pipelineStatus,
         },
       });
     }
 
-    // Payment not found yet
+    // No payment found yet
     res.json({
       success: true,
       data: {
         invoiceId: invoice._id,
         status: invoice.status,
         paid: false,
-        settled: false,
+        depositAddresses: invoice.depositAddresses,
         solanaPayUrl: invoice.solanaPayUrl,
-        paymentAmount: invoice.paymentAmount,
-        paymentToken: invoice.paymentToken,
       },
     });
   } catch (error) {
@@ -410,6 +507,130 @@ router.post('/:id/check-payment', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to check payment',
+    });
+  }
+});
+
+/**
+ * POST /api/invoices/:id/simulate-payment - Simulate a payment for testing
+ * Simulates a payment on the specified chain without real blockchain
+ */
+router.post('/:id/simulate-payment', async (req, res) => {
+  try {
+    const { chain } = req.body;
+
+    if (!chain || !['BTC', 'ETH', 'SOL'].includes(chain.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid chain. Must be one of: BTC, ETH, SOL',
+      });
+    }
+
+    const normalizedChain = chain.toUpperCase();
+
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      businessId: req.businessId,
+    });
+
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invoice not found',
+      });
+    }
+
+    // Must be in SENT status
+    if (invoice.status !== 'SENT') {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot simulate payment. Invoice status is ${invoice.status}`,
+      });
+    }
+
+    // Check if chain is enabled
+    const chainKey = `allow${normalizedChain.charAt(0)}${normalizedChain.slice(1).toLowerCase()}`;
+    if (!invoice.paymentOptions[chainKey]) {
+      return res.status(400).json({
+        success: false,
+        error: `${normalizedChain} payments are not enabled for this invoice`,
+      });
+    }
+
+    // Get address or reference for simulation
+    let addressOrReference;
+    if (normalizedChain === 'SOL') {
+      addressOrReference = invoice.referencePublicKey;
+    } else {
+      addressOrReference = invoice.depositAddresses[normalizedChain.toLowerCase()];
+    }
+
+    if (!addressOrReference) {
+      return res.status(400).json({
+        success: false,
+        error: `No deposit address found for ${normalizedChain}`,
+      });
+    }
+
+    // Calculate expected amount
+    const rates = invoice.lockedQuote?.rates || chains.getRates();
+    const expectedAmount = chains.usdToChainAmount(normalizedChain, invoice.total);
+
+    // Simulate the payment
+    const simResult = chains.simulatePayment(normalizedChain, addressOrReference, expectedAmount);
+
+    res.json({
+      success: true,
+      data: {
+        message: `Simulated ${normalizedChain} payment`,
+        chain: normalizedChain,
+        amount: expectedAmount,
+        formattedAmount: chains.formatAmount(normalizedChain, expectedAmount),
+        txHash: simResult.txHash,
+        note: 'Call /check-payment to detect this payment and trigger the pipeline',
+      },
+    });
+  } catch (error) {
+    console.error('Simulate payment error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to simulate payment',
+    });
+  }
+});
+
+/**
+ * GET /api/invoices/:id/pipeline-status - Get detailed pipeline status
+ */
+router.get('/:id/pipeline-status', async (req, res) => {
+  try {
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      businessId: req.businessId,
+    });
+
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invoice not found',
+      });
+    }
+
+    const pipelineStatus = await pipeline.getPipelineStatus(invoice._id);
+    const pipelineSummary = await pipeline.getPipelineSummary(invoice._id);
+
+    res.json({
+      success: true,
+      data: {
+        status: pipelineStatus,
+        summary: pipelineSummary,
+      },
+    });
+  } catch (error) {
+    console.error('Get pipeline status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get pipeline status',
     });
   }
 });
@@ -431,11 +652,12 @@ router.post('/:id/cancel', async (req, res) => {
       });
     }
 
-    // Can't cancel if already paid or settled
-    if (invoice.status === 'PAID' || invoice.status === 'SETTLED') {
+    // Can't cancel if already paid or in pipeline
+    const nonCancellableStatuses = ['PAID_DETECTED', 'CONVERTING', 'SETTLING', 'CASHED_OUT', 'COMPLETE'];
+    if (nonCancellableStatuses.includes(invoice.status)) {
       return res.status(400).json({
         success: false,
-        error: 'Cannot cancel paid or settled invoice',
+        error: 'Cannot cancel invoice that is being processed or already paid',
       });
     }
 
