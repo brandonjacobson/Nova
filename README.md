@@ -2,6 +2,8 @@
 
 Nova is a crypto invoicing and payments dashboard designed to help businesses create invoices, track payments, and manage transaction history through a clean, modern interface.
 
+**LIVE:** https://nova-sand-iota.vercel.app/
+
 This project was built as a hackathon submission for **SwampHacks XI**.
 
 ---
