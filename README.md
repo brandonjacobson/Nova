@@ -166,25 +166,6 @@ Frontend will run on:
 
 ---
 
-## API Overview (Backend)
-
-Nova exposes a REST API for invoices, payments, and dashboard data. Example endpoints include:
-
-- `POST /api/invoices` — Create a new invoice
-- `GET /api/invoices` — List invoices
-- `GET /api/invoices/:id` — Get invoice details
-- `PATCH /api/invoices/:id` — Update invoice status
-
-Exact routes may vary depending on the implementation.
-
----
-
-## Hackathon Credit
-
-Built for **SwampHacks XI**.
-
----
-
 ## Third-Party Services and APIs Used
 
 - **MongoDB Atlas** (optional cloud database hosting)
@@ -196,10 +177,10 @@ Built for **SwampHacks XI**.
 
 ## Notes
 
-Crypto settlement and exchange rate conversion logic is implemented in a demo-ready format and can be extended to production-ready on-chain verification and automated conversion systems.
+Crypto settlement and exchange rate conversion logic is implemented in a demo-ready format and will be soon extended to production-ready on-chain verification and automated conversion systems.
 
 ---
 
 ## License
 
-Provided as-is for hackathon and educational purposes. Add a license file if you plan to open-source this project publicly.
+Provided as-is for hackathon and educational purposes.
