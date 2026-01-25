@@ -12,6 +12,12 @@ export const metadata = {
   description: "The modern business dashboard for crypto invoicing, payments, and finance management. Built for the future of commerce.",
 };
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+};
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
