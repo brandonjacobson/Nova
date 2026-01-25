@@ -13,7 +13,28 @@ const settingsRouter = require('./routes/settings');
 const app = express();
 
 // Middleware
-app.use(cors());
+const allowedOrigins = [
+"http://localhost:3000",
+"https://nova-sand-iota.vercel.app",
+];
+
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (Postman, curl, server-to-server)
+      if (!origin) return callback(null, true);
+
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } 
+
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 // Health check endpoint (no auth required)
