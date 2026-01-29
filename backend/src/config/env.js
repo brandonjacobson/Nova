@@ -3,8 +3,8 @@ require('dotenv').config();
 const config = {
   port: process.env.PORT || 4000,
   mongodbUri: process.env.MONGODB_URI,
-  jwtSecret: process.env.JWT_SECRET || 'mercury-dev-secret-change-in-production',
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  jwtSecret: process.env.JWT_SECRET,
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
 
   // ========== BLOCKCHAIN CONFIGURATION ==========
 

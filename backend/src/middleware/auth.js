@@ -2,6 +2,10 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/env');
 const { User } = require('../models');
 
+if (!config.jwtSecret) {
+  throw new Error('JWT secret not set in environment variables');
+}
+
 /**
  * Authentication middleware
  * Verifies JWT token and attaches user + business to request
@@ -26,10 +30,10 @@ const authenticate = async (req, res, next) => {
     // Get user from database
     const user = await User.findById(decoded.userId).populate('businessId');
 
-    if (!user) {
+    if (!user || !user.businessId) {
       return res.status(401).json({
         success: false,
-        error: 'Invalid token. User not found.',
+        error: 'Invalid token. User or businessnot found.',
       });
     }
 
@@ -95,8 +99,8 @@ const optionalAuth = async (req, res, next) => {
 const generateToken = (user) => {
   return jwt.sign(
     {
-      userId: user._id,
-      businessId: user.businessId,
+      userId: user._id.toString(),
+      businessId: user.businessId.toString(),
       email: user.email,
       role: user.role,
     },

@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/database');
+const helmet = require('helmet');
 
 // Import routes
 const authRouter = require('./routes/auth');
@@ -13,6 +14,7 @@ const settingsRouter = require('./routes/settings');
 const app = express();
 
 // Middleware
+app.use(helmet());
 const allowedOrigins = [
 "http://localhost:3000",
 "https://nova-sand-iota.vercel.app",

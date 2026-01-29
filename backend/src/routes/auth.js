@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
-const { loginLimiter } = require('../middleware/rateLimit'); // if you added it
+const { loginLimiter } = require('../middleware/rateLimit'); 
 
 // Login, with rate limiting
 router.post('/login', loginLimiter, authController.login);
