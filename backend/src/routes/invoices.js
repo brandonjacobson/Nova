@@ -9,10 +9,11 @@ const express = require('express');
 const router = express.Router();
 const { Invoice, Business } = require('../models');
 const { authenticate } = require('../middleware/auth');
+const { requireBusiness, scopedFilter } = require('../utils/businessScope');
 const { chains, solana, quote, pipeline } = require('../services');
 
 // All invoice routes require authentication
-router.use(authenticate);
+router.use(authenticate, requireBusiness);
 
 /**
  * POST /api/invoices - Create new invoice
@@ -52,6 +53,13 @@ router.post('/', async (req, res) => {
 
     // Get business for defaults
     const business = await Business.findById(req.businessId);
+
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        error: 'Business not found for this user',
+      });
+    }
     const invoiceNumber = await business.getNextInvoiceNumber();
 
     // Set payment options (default: all chains enabled)
@@ -75,6 +83,15 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Calculate total amount
+    const itemDocs = items.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      amount: item.quantity * item.unitPrice,
+    }));
+    const total = itemDocs.reduce((sum, item) => sum + item.amount, 0);
+
     // Create invoice
     const invoice = await Invoice.create({
       businessId: req.businessId,
@@ -82,12 +99,8 @@ router.post('/', async (req, res) => {
       clientName,
       clientEmail: clientEmail || '',
       clientAddress: clientAddress || '',
-      items: items.map((item) => ({
-        description: item.description,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        amount: item.quantity * item.unitPrice,
-      })),
+      items: itemDocs,
+      total,
       dueDate: new Date(dueDate),
       notes: notes || '',
       paymentOptions: finalPaymentOptions,
@@ -115,10 +128,13 @@ router.post('/', async (req, res) => {
  */
 router.get('/', async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    let { status, page = 1, limit = 20 } = req.query;
+
+    page = Math.max(1, parseInt(page, 10) || 1);
+    limit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
     // Build query
-    const query = { businessId: req.businessId };
+    const query = scopedFilter(req, {});
     if (status) {
       // Support comma-separated statuses for grouped filters
       const statuses = status.toUpperCase().split(',').map(s => s.trim());
@@ -160,10 +176,7 @@ router.get('/', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    const invoice = await Invoice.findOne({
-      _id: req.params.id,
-      businessId: req.businessId,
-    });
+    const invoice = await Invoice.findOne(scopedFilter(req, { _id: req.params.id }));
 
     if (!invoice) {
       return res.status(404).json({
@@ -234,6 +247,7 @@ router.put('/:id', async (req, res) => {
         unitPrice: item.unitPrice,
         amount: item.quantity * item.unitPrice,
       }));
+      invoice.total = invoice.items.reduce((sum, item) => sum + item.amount, 0);
     }
     if (dueDate) invoice.dueDate = new Date(dueDate);
     if (notes !== undefined) invoice.notes = notes;
@@ -324,6 +338,13 @@ router.post('/:id/send', async (req, res) => {
 
     // Get business for payout addresses
     const business = await Business.findById(req.businessId);
+
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        error: 'Business not found for this user',
+      });
+    }
 
     // Check that at least one payment option is enabled
     const hasPaymentOption =

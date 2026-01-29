@@ -3,10 +3,11 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const { Invoice, Payment, Settlement, Cashout, Business } = require('../models');
 const { authenticate } = require('../middleware/auth');
+const { requireBusiness } = require('../utils/businessScope');
 const { nessie } = require('../services');
 
 // All dashboard routes require authentication
-router.use(authenticate);
+router.use(authenticate, requireBusiness);
 
 /**
  * GET /api/dashboard/stats - Get dashboard statistics
@@ -128,7 +129,8 @@ router.get('/stats', async (req, res) => {
 router.get('/recent', async (req, res) => {
   try {
     const businessId = req.businessId;
-    const limit = parseInt(req.query.limit) || 5;
+    let limit = parseInt(req.query.limit, 10) || 5;
+    limit = Math.min(50, Math.max(1, limit));
 
     // Get recent invoices
     const recentInvoices = await Invoice.find({ businessId })

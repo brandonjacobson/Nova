@@ -11,10 +11,11 @@ const express = require('express');
 const router = express.Router();
 const { Business } = require('../models');
 const { authenticate } = require('../middleware/auth');
+const { requireBusiness } = require('../utils/businessScope');
 const { nessie, chains } = require('../services');
 
 // All settings routes require authentication
-router.use(authenticate);
+router.use(authenticate, requireBusiness);
 
 // ========== PAYOUT ADDRESSES ==========
 
