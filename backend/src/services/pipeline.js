@@ -16,9 +16,11 @@ const Business = require('../models/Business');
 const Payment = require('../models/Payment');
 const config = require('../config/env');
 const chains = require('./chains');
+const { getNetwork, isCryptoAsset } = require('../config/assets');
+const { attachWalletToPayment } = require('./services/paymentWalletService');
 const { isConversionNeeded, executeConversion } = require('./conversion');
 const { executeSettlement, getPayoutAddress } = require('./settlement');
-const { executeCashout } = require('./nessie');
+const { executeFiatSettlement, getFiatSettlementByInvoice } = require('./fiatSettlement');
 
 // ========== PIPELINE ORCHESTRATION ==========
 
@@ -50,6 +52,8 @@ async function processPayment(invoiceId, paymentDetails) {
     throw new Error(`Business not found: ${invoice.businessId}`);
   }
 
+  const paymentAsset = paymentDetails.assetSymbol || paymentDetails.chain;
+  const paymentNetwork = getNetwork(paymentAsset);
   // ========== STAGE 1: PAYMENT DETECTED ==========
 
   const usdValueCents = chains.chainAmountToUsd(paymentDetails.chain, paymentDetails.amount);
@@ -60,20 +64,25 @@ async function processPayment(invoiceId, paymentDetails) {
   })();
 
   // Create Payment record
-  const payment = await Payment.create({
+   const payment = await Payment.create({
     invoiceId,
     businessId: invoice.businessId,
-    chain: paymentDetails.chain,
+    chain: paymentNetwork,          // network (BTC / ETH / SOL)
+    assetSymbol: paymentAsset,      // asset (BTC / ETH / SOL / USDC / USDT)
     txHash: paymentDetails.txHash,
     fromAddress: paymentDetails.fromAddress || 'simulated',
     toAddress,
-    amount: paymentDetails.amount,
+    amount: paymentDetails.amount,  // smallest units of paymentAsset
     status: 'CONFIRMED',
     confirmations: paymentDetails.confirmations || 1,
     confirmedAt: new Date(),
-    exchangeRate: invoice.lockedQuote?.rates?.[paymentDetails.chain.toLowerCase()] || null,
+    exchangeRate: invoice.lockedQuote?.rates?.[paymentAsset.toLowerCase()] || null,
     usdValueCents,
   });
+
+
+  // Create WalletTransaction + update WalletBalance
+  await attachWalletToPayment(payment._id);
 
   // Update invoice status
   invoice.status = 'PAID_DETECTED';
@@ -83,7 +92,8 @@ async function processPayment(invoiceId, paymentDetails) {
   // Lock the quote with payment details
   invoice.lockedQuote = {
     ...invoice.lockedQuote,
-    paymentChain: paymentDetails.chain,
+    paymentChain: paymentNetwork,
+    paymentAsset,
     paymentAmount: paymentDetails.amount,
     paymentAmountUsd: usdValueCents,
     lockedAt: new Date(),
@@ -92,19 +102,29 @@ async function processPayment(invoiceId, paymentDetails) {
   await invoice.save();
   await demoDelay('PAID_DETECTED');
 
-  // ========== STAGE 2: CONVERSION (if needed) ==========
+    // ========== STAGE 2: CONVERSION (if needed) ==========
 
-  const needsConversion = isConversionNeeded(
-    paymentDetails.chain,
-    invoice.settlementTarget
-  );
+  const invoiceTarget = invoice.settlementTarget;   // BTC / ETH / SOL / USDC / USDT / USD
+  const mode = invoice.conversionMode || 'MODE_A';  // default to MODE_A if missing
 
-  let conversionId = null;
-  let settlementAsset = paymentDetails.chain;
+  let settlementAsset;
   let settlementAmount = paymentDetails.amount;
+  let conversionId = null;
 
-  if (needsConversion && invoice.settlementTarget !== 'USD') {
-    // Mode A: Cross-chain conversion (crypto to different crypto)
+  if (mode === 'MODE_B') {
+    // Receive in-kind: keep what was paid
+    settlementAsset = paymentAsset;
+  } else {
+    // MODE_A: convert to target asset
+    settlementAsset = invoiceTarget;
+  }
+
+  const needsConversion =
+    isCryptoAsset(settlementAsset) &&
+    settlementAsset !== paymentAsset;
+
+  if (needsConversion) {
+    // Crypto → crypto conversion (e.g. ETH → USDC)
     invoice.status = 'CONVERTING';
     await invoice.save();
     await demoDelay('CONVERTING');
@@ -113,24 +133,29 @@ async function processPayment(invoiceId, paymentDetails) {
       invoiceId,
       paymentId: payment._id,
       businessId: invoice.businessId,
-      fromAsset: paymentDetails.chain,
-      toAsset: invoice.settlementTarget,
+      fromAsset: paymentAsset,
+      toAsset: settlementAsset,
       fromAmount: paymentDetails.amount,
       rates: invoice.lockedQuote?.rates,
     });
 
     conversionId = conversion._id;
-    settlementAsset = invoice.settlementTarget;
     settlementAmount = conversion.toAmount;
     invoice.conversionTxHash = conversion.txHash;
     invoice.convertedAt = new Date();
     await invoice.save();
+  } else if (settlementAsset === 'USD') {
+    // Conceptual "conversion" to fiat, FX handled by bank
+    invoice.status = 'CONVERTING';
+    await invoice.save();
+    await demoDelay('CONVERTING');
   }
 
   // ========== STAGE 3: SETTLEMENT ==========
 
-  if (invoice.settlementTarget !== 'USD') {
-    // Crypto settlement - transfer to merchant's payout address
+  if (isCryptoAsset(settlementAsset)) {
+    // Crypto settlement: BTC, ETH, SOL, USDC, USDT
+
     invoice.status = 'SETTLING';
     await invoice.save();
     await demoDelay('SETTLING');
@@ -157,39 +182,38 @@ async function processPayment(invoiceId, paymentDetails) {
     invoice.status = 'COMPLETE';
     invoice.completedAt = new Date();
     await invoice.save();
-  } else {
-    // USD settlement - convert to USD value then cashout via Nessie
-    invoice.status = 'CONVERTING';
-    await invoice.save();
-    await demoDelay('CONVERTING');
+  } else if (settlementAsset === 'USD') {
+    // Fiat settlement via partner bank (no Nessie)
 
-    // For USD target, the "conversion" is just calculating the USD value
-    // The actual conversion happens when we cash out
-    const usdCents = invoice.total; // Invoice total is already in USD cents
+    const usdCents = invoice.total; // or payment.usdValueCents if you prefer
 
-    invoice.status = 'CASHED_OUT';
-    await invoice.save();
-    await demoDelay('CASHED_OUT');
-
-    // Check if auto-cashout is enabled and Nessie account is configured
-    if (invoice.autoCashout && business.nessieAccountId) {
-      const cashout = await executeCashout({
-        invoiceId,
-        businessId: invoice.businessId,
-        nessieAccountId: business.nessieAccountId,
-        amountCents: usdCents,
-        description: `Nova Invoice #${invoice.invoiceNumber}`,
-      });
-
-      invoice.nessieTransferId = cashout.nessieTransferId;
-      invoice.cashedOutAt = new Date();
-    } else if (!business.nessieAccountId) {
-      console.warn(`No Nessie account configured for business ${business._id}, skipping cashout`);
+    if (!business.bankAccountId) {
+      invoice.status = 'FAILED';
+      await invoice.save();
+      throw new Error(`No bankAccountId configured for business ${business._id}`);
     }
 
+    invoice.status = 'SETTLING';
+    await invoice.save();
+    await demoDelay('SETTLING');
+
+    const fiatSettlement = await executeFiatSettlement({
+      invoiceId,
+      businessId: invoice.businessId,
+      bankAccountId: business.bankAccountId,
+      amountCents: usdCents,
+      description: `Nova Invoice #${invoice.invoiceNumber}`,
+    });
+
+    invoice.fiatSettlementId = fiatSettlement._id;
+    invoice.cashedOutAt = fiatSettlement.completedAt || new Date();
     invoice.status = 'COMPLETE';
     invoice.completedAt = new Date();
     await invoice.save();
+  } else {
+    invoice.status = 'FAILED';
+    await invoice.save();
+    throw new Error(`Unsupported settlement asset: ${settlementAsset}`);
   }
 
   return Invoice.findById(invoiceId);
@@ -227,7 +251,7 @@ async function getPipelineStatus(invoiceId) {
     Payment.findOne({ invoiceId }).sort({ createdAt: -1 }),
     require('./conversion').getConversionByInvoice(invoiceId),
     require('./settlement').getSettlementByInvoice(invoiceId),
-    require('./nessie').getCashoutByInvoice(invoiceId),
+    getFiatSettlementByInvoice(invoiceId),
   ]);
 
   return {
@@ -266,12 +290,12 @@ async function getPipelineStatus(invoiceId) {
             timestamp: settlement.completedAt,
           }
         : null,
-      cashout: cashout
+      fiatSettlement: fiatSettlement
         ? {
-            status: cashout.status,
-            amountCents: cashout.amountCents,
-            nessieTransferId: cashout.nessieTransferId,
-            timestamp: cashout.completedAt,
+            status: fiatSettlement.status,
+            amountCents: fiatSettlement.amountCents,
+            bankTransferId: fiatSettlement.bankTransferId,
+            timestamp: fiatSettlement.completedAt,
           }
         : null,
     },
@@ -335,14 +359,14 @@ async function getPipelineSummary(invoiceId) {
   }
 
   // Cashout step (if applicable)
-  if (status.stages.cashout) {
-    const c = status.stages.cashout;
+  if (status.stages.fiatSettlement) {
+    const f = status.stages.fiatSettlement;
     steps.push({
-      step: 'Cashed Out',
-      status: c.status === 'COMPLETED' ? 'complete' : c.status.toLowerCase(),
-      detail: `$${(c.amountCents / 100).toFixed(2)} deposited`,
-      nessieTransferId: c.nessieTransferId,
-      timestamp: c.timestamp,
+      step: 'Fiat Settled',
+      status: f.status === 'COMPLETED' ? 'complete' : f.status.toLowerCase(),
+      detail: `$${(f.amountCents / 100).toFixed(2)} sent to bank`,
+      bankTransferId: f.bankTransferId,
+      timestamp: f.timestamp,
     });
   }
 
@@ -398,6 +422,7 @@ async function checkAndProcessPayment(invoiceId) {
       // Payment detected! Process through pipeline
       const updatedInvoice = await processPayment(invoiceId, {
         chain,
+        assetSymbol,
         txHash: result.txHash,
         amount: result.amount || expectedAmount,
       });

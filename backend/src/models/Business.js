@@ -25,7 +25,7 @@ const businessSchema = new mongoose.Schema(
     // Default invoice settings
     defaultSettlementTarget: {
       type: String,
-      enum: ['BTC', 'ETH', 'SOL', 'USD'],
+      enum: ['BTC', 'ETH', 'SOL', 'USDC', 'USDT', 'USD'],
       default: 'USD',
     },
     defaultConversionMode: {

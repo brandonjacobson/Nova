@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { ASSETS, getDecimals } = require('../config/assets');
 
 const paymentSchema = new mongoose.Schema(
   {
@@ -33,6 +34,13 @@ const paymentSchema = new mongoose.Schema(
     chain: {
       type: String,
       enum: ['BTC', 'ETH', 'SOL'],
+      required: true,
+    },
+
+    // Asset that was paid 
+    assetSymbol: {
+      type: String,
+      enum: Object.keys(ASSETS),
       required: true,
     },
 

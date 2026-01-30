@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const { Schema } = mongoose;
+const { ASSETS, getDecimals } = require('../config/assets');
 
 const settlementSchema = new mongoose.Schema(
   {
@@ -28,7 +30,7 @@ const settlementSchema = new mongoose.Schema(
     // Settlement asset
     asset: {
       type: String,
-      enum: ['BTC', 'ETH', 'SOL'],
+      enum: ['BTC', 'ETH', 'SOL', 'USDC', 'USDT'],
       required: true,
     },
 
@@ -81,17 +83,16 @@ const settlementSchema = new mongoose.Schema(
 
 // Virtual for human-readable amount based on asset
 settlementSchema.virtual('amountFormatted').get(function () {
-  const amount = BigInt(this.amount);
-  switch (this.asset) {
-    case 'BTC':
-      return (Number(amount) / 100_000_000).toFixed(8) + ' BTC';
-    case 'ETH':
-      return (Number(amount) / 1e18).toFixed(8) + ' ETH';
-    case 'SOL':
-      return (Number(amount) / 1_000_000_000).toFixed(9) + ' SOL';
-    default:
-      return this.amount;
-  }
+  const amountBig = BigInt(this.amount);
+  const decimals = getDecimals(this.asset);
+  const factor = 10n ** BigInt(decimals);
+
+  const value = Number(amountBig) / Number(factor);
+
+  const displayDecimals = Math.min(decimals, 8); // Limit to 8 decimals for display
+  
+  
+  return `${value.toFixed(displayDecimals)} ${this.asset}`;
 });
 
 // Virtual for formatted USD value
