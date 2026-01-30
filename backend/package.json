@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "seed": "node src/scripts/seed.js"
+    "seed": "node src/scripts/seed.js",
+    "migrate:wallets": "node src/scripts/migratePayoutAddressesToWallets.js"
   },
   "keywords": [],
   "author": "",

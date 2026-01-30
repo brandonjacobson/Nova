@@ -10,6 +10,7 @@ import './SettingsPage.css';
 
 const SettingsPage = () => {
   const { user } = useAuth();
+  const isOwner = user?.role === 'owner';
   const router = useRouter();
 
   // Form states
@@ -280,10 +281,11 @@ const SettingsPage = () => {
               />
             </div>
 
+
             <button
               className="save-btn"
               onClick={handleSavePayoutAddresses}
-              disabled={saving === 'payout'}
+              disabled={!isOwner || saving === 'payout'}
             >
               {saving === 'payout' ? 'Saving...' : 'Save Addresses'}
             </button>
@@ -549,7 +551,7 @@ const SettingsPage = () => {
             <button
               className="save-btn"
               onClick={handleSaveDefaults}
-              disabled={saving === 'defaults'}
+              disabled={!isOwner || saving === 'defaults'}
             >
               {saving === 'defaults' ? 'Saving...' : 'Save Defaults'}
             </button>

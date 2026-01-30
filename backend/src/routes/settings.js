@@ -12,6 +12,7 @@ const router = express.Router();
 const { Business } = require('../models');
 const { authenticate } = require('../middleware/auth');
 const { requireBusiness } = require('../utils/businessScope');
+const { requireRole } = require('../utils/requireRole');
 const { nessie, chains } = require('../services');
 
 // All settings routes require authentication
@@ -55,7 +56,7 @@ router.get('/payout-addresses', async (req, res) => {
  * PUT /api/settings/payout-addresses
  * Update merchant's payout addresses
  */
-router.put('/payout-addresses', async (req, res) => {
+router.put('/payout-addresses', requireRole('owner'), async (req, res) => {
   try {
     const { btc, eth, sol } = req.body;
 
