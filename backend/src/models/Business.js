@@ -22,16 +22,6 @@ const businessSchema = new mongoose.Schema(
       sol: { type: String, default: '' }, // Solana address
     },
 
-    // Nessie (fiat) Configuration
-    nessieAccountId: {
-      type: String,
-      default: null,
-    },
-    nessieCustomerId: {
-      type: String,
-      default: null,
-    },
-
     // Default invoice settings
     defaultSettlementTarget: {
       type: String,

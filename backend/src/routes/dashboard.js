@@ -4,7 +4,6 @@ const mongoose = require('mongoose');
 const { Invoice, Payment, Settlement, Cashout, Business } = require('../models');
 const { authenticate } = require('../middleware/auth');
 const { requireBusiness } = require('../utils/businessScope');
-const { nessie } = require('../services');
 
 // All dashboard routes require authentication
 router.use(authenticate, requireBusiness);
@@ -169,6 +168,7 @@ router.get('/recent', async (req, res) => {
   }
 });
 
+//TODO: CASHOUTS
 /**
  * GET /api/dashboard/cashouts - Get cashout history and statistics
  */
@@ -179,10 +179,8 @@ router.get('/cashouts', async (req, res) => {
 
     // Get business info to check Nessie account
     const business = await Business.findById(businessId);
-    const nessieConnected = !!business?.nessieAccountId;
 
     // Get cashout statistics
-    const cashoutStats = await nessie.getCashoutStats(businessId);
 
     // Get recent cashouts
     const recentCashouts = await Cashout.find({ businessId })
@@ -206,24 +204,7 @@ router.get('/cashouts', async (req, res) => {
       };
     });
 
-    // Get Nessie balance if connected
-    let nessieBalance = null;
-    let isSimulatedBalance = false;
-    if (nessieConnected) {
-      // For simulated accounts, calculate balance from cashouts
-      if (nessie.isSimulatedAccount(business.nessieAccountId)) {
-        nessieBalance = cashoutStats.totalCents / 100;
-        isSimulatedBalance = true;
-      } else {
-        try {
-          nessieBalance = await nessie.getAccountBalance(business.nessieAccountId);
-        } catch (err) {
-          // If API fails, use cashout total for demo resilience
-          nessieBalance = cashoutStats.totalCents / 100;
-          isSimulatedBalance = true;
-        }
-      }
-    }
+    
 
     res.json({
       success: true,
@@ -234,13 +215,6 @@ router.get('/cashouts', async (req, res) => {
           totalCount: cashoutStats.totalCount,
           byStatus: statusMap,
         },
-        nessie: {
-          connected: nessieConnected,
-          accountId: business?.nessieAccountId || null,
-          balance: nessieBalance,
-          formattedBalance: nessieBalance !== null ? `$${nessieBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : null,
-          simulated: isSimulatedBalance,
-        },
         recentCashouts: recentCashouts.map((c) => ({
           id: c._id,
           invoiceId: c.invoiceId?._id,
@@ -249,8 +223,6 @@ router.get('/cashouts', async (req, res) => {
           amountCents: c.amountCents,
           formattedAmount: c.formattedAmount,
           status: c.status,
-          nessieTransferId: c.nessieTransferId,
-          isSimulated: nessie.isSimulatedTransfer(c.nessieTransferId),
           completedAt: c.completedAt,
           createdAt: c.createdAt,
         })),

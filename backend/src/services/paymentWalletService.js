@@ -66,7 +66,7 @@ async function attachWalletToPayment(paymentId) {
   };
 
   const txStatus = statusMap[payment.status] || 'PENDING';
-  }
+  
 
   // 3. Create WalletTransaction
   const tx = await WalletTransaction.create({
