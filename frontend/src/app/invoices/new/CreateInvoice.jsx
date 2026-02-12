@@ -13,6 +13,7 @@ const CreateInvoice = () => {
   const router = useRouter();
 
   const [formData, setFormData] = useState({
+    invoiceNumber: '',
     clientName: '',
     clientEmail: '',
     clientAddress: '',
@@ -131,6 +132,7 @@ const CreateInvoice = () => {
       const defaultDueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       const invoiceData = {
+        invoiceNumber: formData.invoiceNumber?.trim() || undefined,
         clientName: formData.clientName,
         clientEmail: formData.clientEmail,
         clientAddress: formData.clientAddress,
@@ -233,6 +235,18 @@ const CreateInvoice = () => {
           <section className="form-section">
             <h2 className="section-title">Invoice Details</h2>
             <div className="form-grid">
+              <div className="form-group">
+                <label htmlFor="invoiceNumber">Invoice Number (optional)</label>
+                <input
+                  type="text"
+                  id="invoiceNumber"
+                  name="invoiceNumber"
+                  value={formData.invoiceNumber}
+                  onChange={handleChange}
+                  placeholder="Leave blank to auto-generate"
+                  disabled={isSubmitting}
+                />
+              </div>
               <div className="form-group">
                 <label htmlFor="dueDate">Due Date</label>
                 <input

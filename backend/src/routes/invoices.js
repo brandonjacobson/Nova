@@ -25,6 +25,7 @@ router.use(authenticate, requireBusiness);
 router.post('/', async (req, res) => {
   try {
     const {
+      invoiceNumber,
       clientName,
       clientEmail,
       clientAddress,
@@ -63,7 +64,40 @@ router.post('/', async (req, res) => {
         error: 'Business not found for this user',
       });
     }
-    const invoiceNumber = await business.getNextInvoiceNumber();
+
+    // Determine invoice number (custom or auto-generated)
+    let finalInvoiceNumber;
+    if (invoiceNumber !== undefined && invoiceNumber !== null) {
+      const trimmed = String(invoiceNumber).trim();
+      if (!trimmed) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invoice number cannot be empty or whitespace.',
+        });
+      }
+      if (trimmed.length > 64) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invoice number is too long (max 64 characters).',
+        });
+      }
+
+      // Check uniqueness per business
+      const existing = await Invoice.findOne({
+        businessId: req.businessId,
+        invoiceNumber: trimmed,
+      });
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          error: 'An invoice with this number already exists for your business. Please choose a different invoice number.',
+        });
+      }
+
+      finalInvoiceNumber = trimmed;
+    } else {
+      finalInvoiceNumber = await business.getNextInvoiceNumber();
+    }
 
     // Set payment options (MVP: ETH and SOL only, no Bitcoin)
     const finalPaymentOptions = {
@@ -98,7 +132,7 @@ router.post('/', async (req, res) => {
     // Create invoice
     const invoice = await Invoice.create({
       businessId: req.businessId,
-      invoiceNumber,
+      invoiceNumber: finalInvoiceNumber,
       clientName,
       clientEmail: clientEmail || '',
       clientAddress: clientAddress || '',
@@ -227,6 +261,7 @@ router.put('/:id', async (req, res) => {
     }
 
     const {
+      invoiceNumber,
       clientName,
       clientEmail,
       clientAddress,
@@ -240,6 +275,37 @@ router.put('/:id', async (req, res) => {
     } = req.body;
 
     // Update fields
+    if (invoiceNumber !== undefined) {
+      const trimmed = String(invoiceNumber).trim();
+      if (!trimmed) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invoice number cannot be empty or whitespace.',
+        });
+      }
+      if (trimmed.length > 64) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invoice number is too long (max 64 characters).',
+        });
+      }
+
+      if (trimmed !== invoice.invoiceNumber) {
+        const existing = await Invoice.findOne({
+          businessId: req.businessId,
+          invoiceNumber: trimmed,
+          _id: { $ne: invoice._id },
+        });
+        if (existing) {
+          return res.status(400).json({
+            success: false,
+            error: 'An invoice with this number already exists for your business. Please choose a different invoice number.',
+          });
+        }
+        invoice.invoiceNumber = trimmed;
+      }
+    }
+
     if (clientName) invoice.clientName = clientName;
     if (clientEmail !== undefined) invoice.clientEmail = clientEmail;
     if (clientAddress !== undefined) invoice.clientAddress = clientAddress;
