@@ -17,7 +17,7 @@ const Payment = require('../models/Payment');
 const config = require('../config/env');
 const chains = require('./chains');
 const { getNetwork, isCryptoAsset } = require('../config/assets');
-const { attachWalletToPayment } = require('./services/paymentWalletService');
+const { attachWalletToPayment } = require('./paymentWalletService');
 const { isConversionNeeded, executeConversion } = require('./conversion');
 const { executeSettlement, getPayoutAddress } = require('./settlement');
 const { executeFiatSettlement, getFiatSettlementByInvoice } = require('./fiatSettlement');
@@ -183,15 +183,9 @@ async function processPayment(invoiceId, paymentDetails) {
     invoice.completedAt = new Date();
     await invoice.save();
   } else if (settlementAsset === 'USD') {
-    // Fiat settlement via partner bank (no Nessie)
-
-    const usdCents = invoice.total; // or payment.usdValueCents if you prefer
-
-    if (!business.bankAccountId) {
-      invoice.status = 'FAILED';
-      await invoice.save();
-      throw new Error(`No bankAccountId configured for business ${business._id}`);
-    }
+    // Fiat settlement (simulated until real bank integration)
+    const usdCents = invoice.total;
+    const bankAccountId = business.bankAccountId || 'pending_real_integration';
 
     invoice.status = 'SETTLING';
     await invoice.save();
@@ -200,7 +194,7 @@ async function processPayment(invoiceId, paymentDetails) {
     const fiatSettlement = await executeFiatSettlement({
       invoiceId,
       businessId: invoice.businessId,
-      bankAccountId: business.bankAccountId,
+      bankAccountId,
       amountCents: usdCents,
       description: `Nova Invoice #${invoice.invoiceNumber}`,
     });
@@ -290,12 +284,12 @@ async function getPipelineStatus(invoiceId) {
             timestamp: settlement.completedAt,
           }
         : null,
-      fiatSettlement: fiatSettlement
+      fiatSettlement: cashout
         ? {
-            status: fiatSettlement.status,
-            amountCents: fiatSettlement.amountCents,
-            bankTransferId: fiatSettlement.bankTransferId,
-            timestamp: fiatSettlement.completedAt,
+            status: cashout.status,
+            amountCents: cashout.amountCents,
+            bankTransferId: cashout.bankTransferId,
+            timestamp: cashout.completedAt,
           }
         : null,
     },
@@ -422,7 +416,7 @@ async function checkAndProcessPayment(invoiceId) {
       // Payment detected! Process through pipeline
       const updatedInvoice = await processPayment(invoiceId, {
         chain,
-        assetSymbol,
+        assetSymbol: chain,
         txHash: result.txHash,
         amount: result.amount || expectedAmount,
       });

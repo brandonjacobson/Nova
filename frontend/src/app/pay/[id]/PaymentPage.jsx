@@ -142,11 +142,10 @@ const PaymentPage = () => {
     }
   };
 
-  // Get enabled chains
+  // Get enabled chains (MVP: ETH and SOL only, no Bitcoin)
   const getEnabledChains = () => {
     if (!invoice?.paymentOptions) return [];
     const chains = [];
-    if (invoice.paymentOptions.allowBtc) chains.push('BTC');
     if (invoice.paymentOptions.allowEth) chains.push('ETH');
     if (invoice.paymentOptions.allowSol) chains.push('SOL');
     return chains;
@@ -245,20 +244,20 @@ const PaymentPage = () => {
             <h2>{isComplete ? 'Payment Complete!' : 'Payment Processing...'}</h2>
             <p>{isComplete ? 'Thank you for your payment.' : 'Your payment has been detected and is being processed.'}</p>
 
-            {/* Pipeline Progress */}
+            {/* Pipeline Progress - backend returns steps array */}
             {pipelineStatus && (
               <div className="pipeline-progress">
-                <div className={`progress-step ${pipelineStatus.stages?.detecting?.status === 'complete' ? 'complete' : 'active'}`}>
+                <div className={`progress-step ${(pipelineStatus.steps?.length >= 1 || isComplete) ? 'complete' : 'active'}`}>
                   <span className="step-dot" />
                   <span className="step-label">Payment Detected</span>
                 </div>
                 {invoice?.conversionMode !== 'MODE_B' && (
-                  <div className={`progress-step ${pipelineStatus.stages?.converting?.status === 'complete' ? 'complete' : pipelineStatus.currentStage === 'converting' ? 'active' : ''}`}>
+                  <div className={`progress-step ${pipelineStatus.steps?.length >= 2 ? 'complete' : pipelineStatus.overallStatus === 'CONVERTING' ? 'active' : ''}`}>
                     <span className="step-dot" />
                     <span className="step-label">Converting</span>
                   </div>
                 )}
-                <div className={`progress-step ${pipelineStatus.stages?.settling?.status === 'complete' || pipelineStatus.stages?.cashingOut?.status === 'complete' ? 'complete' : ['settling', 'cashingOut'].includes(pipelineStatus.currentStage) ? 'active' : ''}`}>
+                <div className={`progress-step ${pipelineStatus.steps?.length >= 3 || isComplete ? 'complete' : ['SETTLING', 'CASHED_OUT'].includes(pipelineStatus.overallStatus) ? 'active' : ''}`}>
                   <span className="step-dot" />
                   <span className="step-label">{invoice?.settlementTarget === 'USD' ? 'Cashing Out' : 'Settling'}</span>
                 </div>

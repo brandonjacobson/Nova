@@ -17,10 +17,12 @@ const businessSchema = new mongoose.Schema(
     },
     // Multi-chain payout addresses (where merchant receives funds)
     payoutAddresses: {
-      btc: { type: String, default: '' }, // Bitcoin address
       eth: { type: String, default: '' }, // Ethereum address
       sol: { type: String, default: '' }, // Solana address
     },
+
+    // Optional: for future real bank / fiat settlement integration
+    bankAccountId: { type: String, default: '' },
 
     // Default invoice settings
     defaultSettlementTarget: {

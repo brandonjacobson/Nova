@@ -14,7 +14,7 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const connectDB = require('../config/database');
-const { Business, User, Invoice, Payment, Settlement, Conversion, Cashout } = require('../models');
+const { Business, User, Invoice, Payment, Settlement, Conversion, FiatSettlement } = require('../models');
 
 const DEMO_PASSWORD = 'password123';
 
@@ -47,7 +47,7 @@ const seedData = async () => {
       Payment.deleteMany({}),
       Settlement.deleteMany({}),
       Conversion.deleteMany({}),
-      Cashout.deleteMany({}),
+      FiatSettlement.deleteMany({}),
     ]);
 
     // Create demo business with multi-chain configuration
@@ -58,14 +58,11 @@ const seedData = async () => {
       invoicePrefix: 'NOVA-',
       invoiceCounter: 0,
       defaultCurrency: 'USD',
-      // Multi-chain payout addresses
+      // Payout addresses (ETH, SOL - no BTC for MVP)
       payoutAddresses: {
-        btc: DEMO_ADDRESSES.btc,
         eth: DEMO_ADDRESSES.eth,
         sol: DEMO_ADDRESSES.sol,
       },
-      // Nessie account for fiat cashout
-      nessieAccountId: '675c4e2c9683f20dd5189f5a',
       // Default settings
       defaultSettlementTarget: 'USD',
       defaultConversionMode: 'MODE_A',
@@ -416,14 +413,14 @@ const seedData = async () => {
       completedAt: new Date(Date.now() - 18 * 60 * 60 * 1000),
     });
 
-    await Cashout.create({
+    await FiatSettlement.create({
       invoiceId: cashedOutInvoice._id,
-      conversionId: conversionCashedOut._id,
       businessId: business._id,
-      nessieTransferId: 'nessie_transfer_pending_xyz789',
-      nessieAccountId: business.nessieAccountId,
+      bankAccountId: 'pending_real_integration',
       amountCents: 300000,
-      status: 'PROCESSING',
+      bankTransferId: 'seed_transfer_pending_xyz789',
+      status: 'COMPLETED',
+      completedAt: new Date(),
     });
 
     // ===== Invoice 8: COMPLETE - Full pipeline done (ETH → USD) =====
@@ -497,13 +494,12 @@ const seedData = async () => {
       completedAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000 + 5 * 60 * 1000),
     });
 
-    await Cashout.create({
+    await FiatSettlement.create({
       invoiceId: completeInvoice._id,
-      conversionId: conversionComplete._id,
       businessId: business._id,
-      nessieTransferId: 'nessie_transfer_complete_final_123',
-      nessieAccountId: business.nessieAccountId,
+      bankAccountId: 'pending_real_integration',
       amountCents: 170000,
+      bankTransferId: 'seed_transfer_complete_final_123',
       status: 'COMPLETED',
       completedAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000 + 15 * 60 * 1000),
     });
@@ -605,7 +601,7 @@ const seedData = async () => {
     console.log('     10. CANCELLED');
     console.log('  - Multiple Payment records');
     console.log('  - Multiple Conversion records');
-    console.log('  - Multiple Cashout records');
+    console.log('  - Multiple FiatSettlement records');
     console.log('  - Multiple Settlement records');
     console.log('\nPayout Addresses (testnet):');
     console.log(`  BTC: ${DEMO_ADDRESSES.btc}`);

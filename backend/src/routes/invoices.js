@@ -11,6 +11,9 @@ const { Invoice, Business } = require('../models');
 const { authenticate } = require('../middleware/auth');
 const { requireBusiness, scopedFilter } = require('../utils/businessScope');
 const { chains, solana, quote, pipeline } = require('../services');
+const { generateInvoicePdf } = require('../services/invoicePdf');
+const { sendInvoiceEmail, isEmailConfigured } = require('../services/emailService');
+const config = require('../config/env');
 
 // All invoice routes require authentication
 router.use(authenticate, requireBusiness);
@@ -62,9 +65,9 @@ router.post('/', async (req, res) => {
     }
     const invoiceNumber = await business.getNextInvoiceNumber();
 
-    // Set payment options (default: all chains enabled)
+    // Set payment options (MVP: ETH and SOL only, no Bitcoin)
     const finalPaymentOptions = {
-      allowBtc: paymentOptions?.allowBtc !== false,
+      allowBtc: false,
       allowEth: paymentOptions?.allowEth !== false,
       allowSol: paymentOptions?.allowSol !== false,
     };
@@ -348,25 +351,26 @@ router.post('/:id/send', async (req, res) => {
 
     // Check that at least one payment option is enabled
     const hasPaymentOption =
-      invoice.paymentOptions.allowBtc ||
       invoice.paymentOptions.allowEth ||
       invoice.paymentOptions.allowSol;
 
     if (!hasPaymentOption) {
       return res.status(400).json({
         success: false,
-        error: 'At least one payment option must be enabled',
+        error: 'At least one payment option (Ethereum or Solana) must be enabled',
       });
     }
 
-    // Generate deposit addresses for enabled chains
-    const depositAddresses = {};
-
-    // Bitcoin
-    if (invoice.paymentOptions.allowBtc) {
-      const btcDeposit = chains.generateDepositAddress('BTC');
-      depositAddresses.btc = btcDeposit.address;
+    // When Solana is enabled, merchant must have a SOL payout address for real payments
+    if (invoice.paymentOptions.allowSol && !business.payoutAddresses?.sol) {
+      return res.status(400).json({
+        success: false,
+        error: 'Solana payout address is required when accepting SOL. Add it in Settings.',
+      });
     }
+
+    // Generate deposit addresses for enabled chains (MVP: no Bitcoin)
+    const depositAddresses = { btc: '', eth: '', sol: '' };
 
     // Ethereum
     if (invoice.paymentOptions.allowEth) {
@@ -446,6 +450,88 @@ router.post('/:id/send', async (req, res) => {
       success: false,
       error: 'Failed to send invoice',
     });
+  }
+});
+
+/**
+ * GET /api/invoices/:id/pdf - Download invoice as PDF
+ */
+router.get('/:id/pdf', async (req, res) => {
+  try {
+    const invoice = await Invoice.findOne(scopedFilter(req, { _id: req.params.id }));
+    if (!invoice) {
+      return res.status(404).json({ success: false, error: 'Invoice not found' });
+    }
+    const baseUrl = config.frontendUrl;
+    const pdfBuffer = await generateInvoicePdf(invoice._id, baseUrl);
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `inline; filename="invoice-${invoice.invoiceNumber}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error('Invoice PDF error:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate PDF' });
+  }
+});
+
+/**
+ * POST /api/invoices/:id/send-email - Email invoice to client (with optional PDF)
+ * Body: { to?: string, attachPdf?: boolean } - defaults to invoice.clientEmail, attachPdf true
+ */
+router.post('/:id/send-email', async (req, res) => {
+  try {
+    const invoice = await Invoice.findOne(scopedFilter(req, { _id: req.params.id }));
+    if (!invoice) {
+      return res.status(404).json({ success: false, error: 'Invoice not found' });
+    }
+    const to = req.body.to || invoice.clientEmail;
+    if (!to) {
+      return res.status(400).json({ success: false, error: 'No recipient email. Set clientEmail on the invoice or pass "to" in the body.' });
+    }
+    const attachPdf = req.body.attachPdf !== false;
+
+    const business = await Business.findById(invoice.businessId);
+    const businessName = business?.name || 'Business';
+    const baseUrl = config.frontendUrl;
+    const paymentUrl = `${baseUrl.replace(/\/$/, '')}/pay/${invoice._id}`;
+
+    let pdfBuffer = null;
+    if (attachPdf) {
+      try {
+        pdfBuffer = await generateInvoicePdf(invoice._id, baseUrl);
+      } catch (err) {
+        console.warn('PDF generation failed for email:', err.message);
+      }
+    }
+
+    const result = await sendInvoiceEmail({
+      to,
+      invoiceNumber: invoice.invoiceNumber,
+      businessName,
+      paymentUrl,
+      pdfBuffer: pdfBuffer || undefined,
+      pdfFilename: pdfBuffer ? `invoice-${invoice.invoiceNumber}.pdf` : undefined,
+    });
+
+    if (!result.sent) {
+      return res.status(503).json({
+        success: false,
+        error: result.error || 'Email not sent',
+        emailConfigured: isEmailConfigured(),
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Invoice email sent',
+        to,
+        attachment: !!pdfBuffer,
+        messageId: result.messageId,
+      },
+    });
+  } catch (error) {
+    console.error('Send invoice email error:', error);
+    res.status(500).json({ success: false, error: 'Failed to send email' });
   }
 });
 

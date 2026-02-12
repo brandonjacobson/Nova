@@ -60,7 +60,7 @@ const walletTransactionSchema = new Schema(
         },
         cashout: {
             type: Schema.Types.ObjectId,
-            ref: 'Cashout',
+            ref: 'FiatSettlement',
         },
         conversion: {
             type: Schema.Types.ObjectId,
