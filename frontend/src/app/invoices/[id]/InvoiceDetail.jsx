@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
-import api, { getToken } from '@/lib/api';
+import api, { getToken, API_BASE_URL } from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
 import './InvoiceDetail.css';
 
@@ -52,7 +52,6 @@ const InvoiceDetail = () => {
   const [actionLoading, setActionLoading] = useState(null);
   const [actionMessage, setActionMessage] = useState(null);
   const [pipelineStatus, setPipelineStatus] = useState(null);
-  const [selectedSimChain, setSelectedSimChain] = useState('SOL');
   const [isEditing, setIsEditing] = useState(false);
   const [draftForm, setDraftForm] = useState(null);
 
@@ -103,6 +102,7 @@ const InvoiceDetail = () => {
       unitPriceCents: item.unitPrice || 0,
     }));
     return {
+      invoiceNumber: invoiceData.invoiceNumber || '',
       clientName: invoiceData.clientName || '',
       clientEmail: invoiceData.clientEmail || '',
       clientAddress: invoiceData.clientAddress || '',
@@ -153,24 +153,6 @@ const InvoiceDetail = () => {
       fetchInvoice();
     }
   }, [invoiceId]);
-
-  useEffect(() => {
-    if (!invoice?.paymentOptions) return;
-    const defaultChain = invoice.paymentOptions.allowSol
-      ? 'SOL'
-      : invoice.paymentOptions.allowEth
-        ? 'ETH'
-        : invoice.paymentOptions.allowBtc
-          ? 'BTC'
-          : 'SOL';
-    const isCurrentAllowed =
-      (selectedSimChain === 'SOL' && invoice.paymentOptions.allowSol) ||
-      (selectedSimChain === 'ETH' && invoice.paymentOptions.allowEth) ||
-      (selectedSimChain === 'BTC' && invoice.paymentOptions.allowBtc);
-    if (!isCurrentAllowed) {
-      setSelectedSimChain(defaultChain);
-    }
-  }, [invoice?.paymentOptions, selectedSimChain]);
 
   const calculateDraftTotals = () => {
     if (!draftForm?.lineItems) return { subtotal: 0, tax: 0, total: 0 };
@@ -253,6 +235,7 @@ const InvoiceDetail = () => {
 
     try {
       const payload = {
+        invoiceNumber: draftForm.invoiceNumber,
         clientName: draftForm.clientName,
         clientEmail: draftForm.clientEmail,
         clientAddress: draftForm.clientAddress,
@@ -315,9 +298,9 @@ const InvoiceDetail = () => {
     setActionLoading('pdf');
     setActionMessage(null);
     try {
-      const base = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+      const pdfUrl = api.invoices.getPdfUrl(invoiceId);
       const token = getToken();
-      const res = await fetch(`${base}/invoices/${invoiceId}/pdf`, {
+      const res = await fetch(pdfUrl, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error('Failed to generate PDF');
@@ -348,26 +331,6 @@ const InvoiceDetail = () => {
       }
     } catch (err) {
       setActionMessage({ type: 'error', text: err?.message || 'Failed to send email' });
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleSimulatePayment = async () => {
-    setActionLoading('simulate');
-    setActionMessage(null);
-    try {
-      const result = await api.invoices.simulatePayment(invoiceId, selectedSimChain);
-      if (result.success) {
-        setActionMessage({ type: 'success', text: `Payment simulated on ${selectedSimChain}! Tx: ${result.data.txHash.slice(0, 16)}...` });
-        // Refresh invoice after a moment
-        setTimeout(() => {
-          fetchInvoice();
-          fetchPipelineStatus();
-        }, 1000);
-      }
-    } catch (err) {
-      setActionMessage({ type: 'error', text: err.message });
     } finally {
       setActionLoading(null);
     }
@@ -539,6 +502,19 @@ const InvoiceDetail = () => {
             <section className="info-section">
               <h2 className="section-title">Details</h2>
               <div className="info-card">
+                <div className="info-row">
+                  <span className="info-label">Invoice Number</span>
+                  {isEditing && isDraft ? (
+                    <input
+                      className="edit-input"
+                      type="text"
+                      value={draftForm?.invoiceNumber || ''}
+                      onChange={(e) => handleDraftFieldChange('invoiceNumber', e.target.value)}
+                    />
+                  ) : (
+                    <span className="info-value">{invoice?.invoiceNumber}</span>
+                  )}
+                </div>
                 <div className="info-row">
                   <span className="info-label">Issue Date</span>
                   <span className="info-value">{formatDate(invoice?.issueDate)}</span>
@@ -867,7 +843,7 @@ const InvoiceDetail = () => {
                 <h3>Payment QR Code</h3>
                 <div className="qr-container">
                   <img
-                    src={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api'}/public/invoice/${invoiceId}/qr`}
+                    src={`${API_BASE_URL}/public/invoice/${invoiceId}/qr`}
                     alt="Payment QR Code"
                     className="qr-image"
                   />
@@ -978,32 +954,6 @@ const InvoiceDetail = () => {
                     'Check Payment'
                   )}
                 </motion.button>
-              )}
-
-              {/* Simulate Payment - For testing */}
-              {canCheckPayment && (
-                <div className="simulate-payment-section">
-                  <label className="simulate-label">Test: Simulate Payment</label>
-                  <div className="simulate-controls">
-                    <select
-                      className="simulate-select"
-                      value={selectedSimChain}
-                      onChange={(e) => setSelectedSimChain(e.target.value)}
-                      disabled={actionLoading === 'simulate'}
-                    >
-                      {invoice?.paymentOptions?.allowBtc && <option value="BTC">BTC</option>}
-                      {invoice?.paymentOptions?.allowEth && <option value="ETH">ETH</option>}
-                      {invoice?.paymentOptions?.allowSol && <option value="SOL">SOL</option>}
-                    </select>
-                    <button
-                      className="action-btn simulate full-width"
-                      onClick={handleSimulatePayment}
-                      disabled={actionLoading === 'simulate'}
-                    >
-                      {actionLoading === 'simulate' ? 'Simulating...' : 'Simulate'}
-                    </button>
-                  </div>
-                </div>
               )}
 
               {canCancel && (

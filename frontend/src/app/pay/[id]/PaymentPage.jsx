@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
-import api from '@/lib/api';
+import api, { API_BASE_URL } from '@/lib/api';
 import './PaymentPage.css';
 
 const CHAIN_INFO = {
@@ -396,13 +396,19 @@ const PaymentPage = () => {
           key={selectedChain}
         >
           {/* QR Code - only for SOL */}
-          {selectedChain === 'SOL' && invoice?.solanaPayUrl && (
+          {selectedChain === 'SOL' && (
             <div className="qr-container">
-              <img
-                src={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api'}/public/invoice/${invoiceId}/qr`}
-                alt="Solana Pay QR Code"
-                className="qr-image"
-              />
+              {invoice?.solanaPayUrl ? (
+                <img
+                  src={`${API_BASE_URL}/public/invoice/${invoiceId}/qr`}
+                  alt="Solana Pay QR Code"
+                  className="qr-image"
+                />
+              ) : (
+                <p className="qr-missing-message">
+                  Solana Pay link is not available for this invoice yet. Please contact the merchant to resend the invoice or enable SOL payments.
+                </p>
+              )}
             </div>
           )}
 

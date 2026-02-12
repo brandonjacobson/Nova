@@ -3,7 +3,8 @@
  * Handles all HTTP requests with authentication and error handling
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
 const TOKEN_KEY = 'nova_token';
 /**
@@ -200,8 +201,7 @@ export const api = {
     getPipelineStatus: (id) =>
       fetchApi(`/invoices/${id}/pipeline-status`),
 
-    getPdfUrl: (id) =>
-      `${process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'}/invoices/${id}/pdf`,
+    getPdfUrl: (id) => `${API_BASE_URL}/invoices/${id}/pdf`,
 
     sendEmail: (id, options = {}) =>
       fetchApi(`/invoices/${id}/send-email`, {
