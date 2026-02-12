@@ -3,14 +3,15 @@
  * Handles all HTTP requests with authentication and error handling
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
+const TOKEN_KEY = 'nova_token';
 /**
  * Get the stored auth token
  */
 export function getToken() {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('mercury_token');
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 /**
@@ -18,7 +19,7 @@ export function getToken() {
  */
 export function setToken(token) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem('mercury_token', token);
+  localStorage.setItem(TOKEN_KEY, token);
 }
 
 /**
@@ -26,7 +27,7 @@ export function setToken(token) {
  */
 export function removeToken() {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem('mercury_token');
+  localStorage.removeItem(TOKEN_KEY);
 }
 
 /**
@@ -81,6 +82,11 @@ async function fetchApi(endpoint, options = {}) {
     // Handle error responses
     if (!response.ok) {
       const message = data?.message || data?.error || `Request failed with status ${response.status}`;
+      
+      if (response.status === 401) {
+        removeToken();
+      }
+
       throw new ApiError(message, response.status, data);
     }
 
@@ -193,6 +199,15 @@ export const api = {
 
     getPipelineStatus: (id) =>
       fetchApi(`/invoices/${id}/pipeline-status`),
+
+    getPdfUrl: (id) =>
+      `${process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'}/invoices/${id}/pdf`,
+
+    sendEmail: (id, options = {}) =>
+      fetchApi(`/invoices/${id}/send-email`, {
+        method: 'POST',
+        body: options,
+      }),
   },
 
   // Public endpoints (no auth required)
@@ -228,33 +243,6 @@ export const api = {
         method: 'PUT',
         body: addresses,
       }),
-
-    getNessie: () =>
-      fetchApi('/settings/nessie'),
-
-    updateNessie: (accountId) =>
-      fetchApi('/settings/nessie', {
-        method: 'PUT',
-        body: { accountId },
-      }),
-
-    getNessieBalance: () =>
-      fetchApi('/settings/nessie/balance'),
-
-    getNessieTransactions: (limit = 20) =>
-      fetchApi(`/settings/nessie/transactions?limit=${limit}`),
-
-    getNessieCustomer: () =>
-      fetchApi('/settings/nessie/customer'),
-
-    provisionNessie: (data = {}) =>
-      fetchApi('/settings/nessie/provision', {
-        method: 'POST',
-        body: data,
-      }),
-
-    discoverNessieAccounts: () =>
-      fetchApi('/settings/nessie/discover'),
 
     getDefaults: () =>
       fetchApi('/settings/defaults'),

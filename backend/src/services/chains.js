@@ -11,7 +11,8 @@ const solana = require('./solana');
 
 // ========== CONSTANTS ==========
 
-const SUPPORTED_CHAINS = ['BTC', 'ETH', 'SOL'];
+// MVP: ETH and SOL only (Bitcoin removed for 3-month scope)
+const SUPPORTED_CHAINS = ['ETH', 'SOL'];
 
 // ========== EXCHANGE RATES ==========
 
@@ -55,7 +56,7 @@ function getRate(chain) {
 function generateDepositAddress(chain, options = {}) {
   switch (chain.toUpperCase()) {
     case 'BTC':
-      return bitcoin.generateDepositAddress();
+      throw new Error('Bitcoin is not supported in this MVP');
 
     case 'ETH':
       return ethereum.generateDepositAddress();
@@ -84,7 +85,7 @@ function generateDepositAddress(chain, options = {}) {
 async function checkPayment(chain, addressOrReference, expectedAmount) {
   switch (chain.toUpperCase()) {
     case 'BTC':
-      return bitcoin.checkPayment(addressOrReference, expectedAmount);
+      return { found: false }; // Bitcoin not supported in MVP
 
     case 'ETH':
       return ethereum.checkPayment(addressOrReference, expectedAmount);

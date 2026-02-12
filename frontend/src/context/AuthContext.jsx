@@ -16,8 +16,11 @@ export function AuthProvider({ children }) {
 
   // Load user data from token on mount
   const loadUser = useCallback(async () => {
+    setLoading(true);
     const token = getToken();
     if (!token) {
+      setUser(null);
+      setBusiness(null);
       setLoading(false);
       return;
     }

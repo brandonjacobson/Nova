@@ -4,7 +4,7 @@ const Invoice = require('./Invoice');
 const Payment = require('./Payment');
 const Settlement = require('./Settlement');
 const Conversion = require('./Conversion');
-const Cashout = require('./Cashout');
+const FiatSettlement = require('./FiatSettlement');
 
 module.exports = {
   Business,
@@ -13,5 +13,5 @@ module.exports = {
   Payment,
   Settlement,
   Conversion,
-  Cashout,
+  FiatSettlement,
 };

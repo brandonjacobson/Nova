@@ -17,25 +17,17 @@ const businessSchema = new mongoose.Schema(
     },
     // Multi-chain payout addresses (where merchant receives funds)
     payoutAddresses: {
-      btc: { type: String, default: '' }, // Bitcoin address
       eth: { type: String, default: '' }, // Ethereum address
       sol: { type: String, default: '' }, // Solana address
     },
 
-    // Nessie (fiat) Configuration
-    nessieAccountId: {
-      type: String,
-      default: null,
-    },
-    nessieCustomerId: {
-      type: String,
-      default: null,
-    },
+    // Optional: for future real bank / fiat settlement integration
+    bankAccountId: { type: String, default: '' },
 
     // Default invoice settings
     defaultSettlementTarget: {
       type: String,
-      enum: ['BTC', 'ETH', 'SOL', 'USD'],
+      enum: ['BTC', 'ETH', 'SOL', 'USDC', 'USDT', 'USD'],
       default: 'USD',
     },
     defaultConversionMode: {

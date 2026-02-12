@@ -15,7 +15,6 @@ const chains = require('./chains');
 const quote = require('./quote');
 const conversion = require('./conversion');
 const settlement = require('./settlement');
-const nessie = require('./nessie');
 const pipeline = require('./pipeline');
 
 module.exports = {
@@ -35,9 +34,6 @@ module.exports = {
 
   // Settlement engine (payout to merchant)
   settlement,
-
-  // Nessie (Capital One fiat cashout)
-  nessie,
 
   // Payment pipeline orchestrator
   pipeline,

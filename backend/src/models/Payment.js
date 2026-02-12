@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { ASSETS, getDecimals } = require('../config/assets');
 
 const paymentSchema = new mongoose.Schema(
   {
@@ -15,10 +16,31 @@ const paymentSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Chain identifier (NEW - multi-chain support)
+    // Wallet that received this payment
+    wallet: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Wallet',
+      defalult: null,
+    },
+
+    // WalletTransaction created for this payment
+    walletTransaction: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'WalletTransaction',
+      default: null,
+    },
+
+    // Chain identifier (multi-chain support)
     chain: {
       type: String,
       enum: ['BTC', 'ETH', 'SOL'],
+      required: true,
+    },
+
+    // Asset that was paid 
+    assetSymbol: {
+      type: String,
+      enum: Object.keys(ASSETS),
       required: true,
     },
 

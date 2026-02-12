@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
-import api from '@/lib/api';
+import api, { getToken } from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
 import './InvoiceDetail.css';
 
@@ -306,6 +306,48 @@ const InvoiceDetail = () => {
       }
     } catch (err) {
       setActionMessage({ type: 'error', text: err.message });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    setActionLoading('pdf');
+    setActionMessage(null);
+    try {
+      const base = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+      const token = getToken();
+      const res = await fetch(`${base}/invoices/${invoiceId}/pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Failed to generate PDF');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice-${invoice?.invoiceNumber || invoiceId}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      setActionMessage({ type: 'success', text: 'PDF downloaded.' });
+    } catch (err) {
+      setActionMessage({ type: 'error', text: err?.message || 'Failed to download PDF' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    setActionLoading('email');
+    setActionMessage(null);
+    try {
+      const result = await api.invoices.sendEmail(invoiceId, { attachPdf: true });
+      if (result.success) {
+        setActionMessage({ type: 'success', text: result.data?.message || 'Email sent.' });
+      } else {
+        setActionMessage({ type: 'error', text: result?.error || 'Email not sent.' });
+      }
+    } catch (err) {
+      setActionMessage({ type: 'error', text: err?.message || 'Failed to send email' });
     } finally {
       setActionLoading(null);
     }
@@ -844,6 +886,32 @@ const InvoiceDetail = () => {
                 </a>
               </div>
             )}
+
+            {/* PDF & Email - for all invoices */}
+            <div className="actions-pdf-email">
+              <motion.button
+                type="button"
+                className="action-btn secondary full-width"
+                onClick={handleDownloadPdf}
+                disabled={actionLoading === 'pdf'}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                {actionLoading === 'pdf' ? <><span className="spinner light" /> Generating...</> : 'Download PDF'}
+              </motion.button>
+              {invoice?.clientEmail && !isDraft && (
+                <motion.button
+                  type="button"
+                  className="action-btn secondary full-width"
+                  onClick={handleSendEmail}
+                  disabled={actionLoading === 'email'}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  {actionLoading === 'email' ? <><span className="spinner light" /> Sending...</> : 'Email Invoice'}
+                </motion.button>
+              )}
+            </div>
 
             {/* Actions */}
             <div className="actions-section">

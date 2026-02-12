@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "seed": "node src/scripts/seed.js"
+    "seed": "node src/scripts/seed.js",
+    "migrate:wallets": "node src/scripts/migratePayoutAddressesToWallets.js"
   },
   "keywords": [],
   "author": "",
@@ -19,8 +20,12 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.5",
+    "nodemailer": "^8.0.1",
+    "pdfkit": "^0.17.2",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

@@ -3,8 +3,8 @@ require('dotenv').config();
 const config = {
   port: process.env.PORT || 4000,
   mongodbUri: process.env.MONGODB_URI,
-  jwtSecret: process.env.JWT_SECRET || 'mercury-dev-secret-change-in-production',
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  jwtSecret: process.env.JWT_SECRET,
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
 
   // ========== BLOCKCHAIN CONFIGURATION ==========
 
@@ -14,17 +14,6 @@ const config = {
   // Ethereum - Sepolia testnet (simulated for hackathon)
   ethRpcUrl: process.env.ETH_RPC_URL || 'https://sepolia.infura.io/v3/YOUR_API_KEY',
   ethNetwork: process.env.ETH_NETWORK || 'sepolia',
-
-  // Bitcoin - testnet (simulated for hackathon)
-  btcNetwork: process.env.BTC_NETWORK || 'testnet',
-  blockcypherToken: process.env.BLOCKCYPHER_TOKEN || '', // Optional, for higher rate limits
-
-  // ========== FIAT CONFIGURATION ==========
-
-  // Nessie (Capital One sandbox)
-  nessieApiKey: process.env.NESSIE_API_KEY,
-  nessieBaseUrl: process.env.NESSIE_BASE_URL || 'http://api.nessieisreal.com',
-  nessieHoldingAccountId: process.env.NESSIE_HOLDING_ACCOUNT_ID,
 
   // ========== FEATURE FLAGS ==========
 
@@ -39,6 +28,16 @@ const config = {
 
   // Delay duration in milliseconds between pipeline stages (default 1500ms)
   demoDelayMs: parseInt(process.env.DEMO_DELAY_MS, 10) || 1500,
+
+  // Frontend base URL (for payment links in PDFs and emails)
+  frontendUrl: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+
+  // Email (optional - for sending invoices)
+  smtpHost: process.env.SMTP_HOST,
+  smtpPort: parseInt(process.env.SMTP_PORT, 10) || 587,
+  smtpUser: process.env.SMTP_USER,
+  smtpPass: process.env.SMTP_PASS,
+  smtpFrom: process.env.SMTP_FROM || process.env.SMTP_USER,
 };
 
 module.exports = config;
